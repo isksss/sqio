@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: sqio
+      POSTGRES_USER: sqio
+      POSTGRES_PASSWORD: sqio
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sqio -d sqio"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  mysql:
+    image: mysql:9.5
+    environment:
+      MYSQL_DATABASE: sqio
+      MYSQL_USER: sqio
+      MYSQL_PASSWORD: sqio
+      MYSQL_ROOT_PASSWORD: sqio-root
+    ports:
+      - "13306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -usqio -psqio --silent"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
