@@ -357,6 +357,54 @@ password_encrypted = true
 	}
 }
 
+func TestPlainPasswordWithAgeIdentityIsNotDecrypted(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	err := os.WriteFile(configPath, []byte(`[[connections]]
+name = "local"
+driver = "sqlite"
+database = "`+filepath.Join(dir, "test.db")+`"
+password = "plain"
+password_encrypted = false
+`), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(dir, "identity.txt")
+	if err := os.WriteFile(identityPath, []byte("not used\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeForTest("--config", configPath, "exec", "--conn", "local", "--age-identity", identityPath, "--sql", "select 1", "--format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"row_count": 1`) {
+		t.Fatalf("expected result, got %s", out)
+	}
+}
+
+func TestEncryptedPasswordRequiresAgeIdentity(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	err := os.WriteFile(configPath, []byte(`[[connections]]
+name = "local"
+driver = "sqlite"
+database = "`+filepath.Join(dir, "test.db")+`"
+password = "encrypted"
+password_encrypted = true
+`), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest("--config", configPath, "exec", "--conn", "local", "--sql", "select 1")
+	if err == nil {
+		t.Fatal("expected age identity error")
+	}
+	if ExitCode(err) != ExitConnection {
+		t.Fatalf("expected connection exit, got %d", ExitCode(err))
+	}
+}
+
 func TestSSHTunnelRejectsDSN(t *testing.T) {
 	_, err := executeForTest(
 		"exec",
