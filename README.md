@@ -27,6 +27,21 @@ sqio history --format json
 sqio tui --conn local
 ```
 
+## インストール
+
+ソースから build できます。
+
+```bash
+go install github.com/isksss/sqio/cmd/sqio@latest
+```
+
+このリポジトリを checkout 済みの場合:
+
+```bash
+go build -o /tmp/sqio ./cmd/sqio
+/tmp/sqio --help
+```
+
 ## 設定
 
 現在のディレクトリにローカル設定を作成します。
@@ -124,6 +139,37 @@ references が含まれます。
 `cartesian-join`、`limit-without-order`)、正確性 (`not-in-null`) を対象にします。
 `keyword-case` は `--enable keyword-case` で有効化する opt-in ルールです。
 
+## 開発
+
+このリポジトリは Go module として構成されています。
+
+```text
+cmd/sqio/              CLI entrypoint
+internal/cli/          CLI command definitions
+internal/config/       config loading and merge rules
+internal/db/           database connections, DSN handling, metadata
+internal/formatter/    SQL formatter
+internal/linter/       SQL lint rules
+internal/service/      shared application service layer
+internal/tui/          TUI frontend
+scripts/               CI and smoke test scripts
+```
+
+通常の確認:
+
+```bash
+gofmt -w cmd internal
+go test ./...
+go build -o /tmp/sqio ./cmd/sqio
+markdownlint-cli2 README.md
+```
+
+CI と同等の軽量チェック:
+
+```bash
+bash scripts/ci-check.sh
+```
+
 ## Smoke Test
 
 このリポジトリには PostgreSQL と MySQL の Docker Compose サービスが含まれています。
@@ -132,4 +178,10 @@ references が含まれます。
 docker compose up -d postgres mysql
 bash scripts/smoke-db.sh
 docker compose down
+```
+
+format、unit test、build、README lint、DB smoke test をまとめて実行する場合:
+
+```bash
+bash scripts/test-all.sh
 ```
