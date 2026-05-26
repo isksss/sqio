@@ -25,6 +25,21 @@ sqio history --format json
 sqio tui --conn local
 ```
 
+## Installation
+
+Install from source:
+
+```bash
+go install github.com/isksss/sqio/cmd/sqio@latest
+```
+
+When working from this repository:
+
+```bash
+go build -o /tmp/sqio ./cmd/sqio
+/tmp/sqio --help
+```
+
 ## Config
 
 Create a local config in the current directory:
@@ -122,6 +137,37 @@ Built-in rules cover unsafe writes (`delete-without-where`,
 `cartesian-join`, `limit-without-order`), and correctness
 (`not-in-null`). `keyword-case` is opt-in via `--enable keyword-case`.
 
+## Development
+
+This repository is structured as a Go module.
+
+```text
+cmd/sqio/              CLI entrypoint
+internal/cli/          CLI command definitions
+internal/config/       config loading and merge rules
+internal/db/           database connections, DSN handling, metadata
+internal/formatter/    SQL formatter
+internal/linter/       SQL lint rules
+internal/service/      shared application service layer
+internal/tui/          TUI frontend
+scripts/               CI and smoke test scripts
+```
+
+Typical checks:
+
+```bash
+gofmt -w cmd internal
+go test ./...
+go build -o /tmp/sqio ./cmd/sqio
+markdownlint-cli2 README.md
+```
+
+Lightweight CI-equivalent checks:
+
+```bash
+bash scripts/ci-check.sh
+```
+
 ## Smoke Test
 
 The repository includes Docker Compose services for PostgreSQL and MySQL.
@@ -130,4 +176,10 @@ The repository includes Docker Compose services for PostgreSQL and MySQL.
 docker compose up -d postgres mysql
 bash scripts/smoke-db.sh
 docker compose down
+```
+
+To run formatting, unit tests, build, README lint, and DB smoke tests together:
+
+```bash
+bash scripts/test-all.sh
 ```
