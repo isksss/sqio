@@ -1,13 +1,15 @@
 # sqio
 
-`sqio` is a Go TUI/CLI integrated database client for MySQL,
-PostgreSQL, and SQLite.
+English README: [README.en.md](README.en.md)
 
-The CLI is the primary interface. The TUI is a frontend over the same
-service layer, so every core workflow remains usable from scripts, CI,
-and AI agents.
+`sqio` は MySQL、PostgreSQL、SQLite に対応した Go 製の
+TUI/CLI 統合データベースクライアントです。
 
-## Commands
+CLI が主要なインターフェースです。TUI は同じサービス層の
+フロントエンドとして動作するため、主要なワークフローは
+スクリプト、CI、AI エージェントからも利用できます。
+
+## コマンド
 
 ```bash
 sqio exec --sql 'select 1' --format json
@@ -25,33 +27,33 @@ sqio history --format json
 sqio tui --conn local
 ```
 
-## Config
+## 設定
 
-Create a local config in the current directory:
+現在のディレクトリにローカル設定を作成します。
 
 ```bash
 sqio init
 ```
 
-Create a global config:
+グローバル設定を作成します。
 
 ```bash
 sqio init -g
 ```
 
-Config paths:
+設定ファイルのパス:
 
 ```text
 ~/.config/sqio/config.toml
 sqio.toml
 ```
 
-The global config is applied everywhere. A local `sqio.toml` is applied
-only when running sqio from that file's directory or its descendants.
-Config is merged in this order: defaults, global config, nearest local
-`sqio.toml`, environment variables, then CLI options.
+グローバル設定は常に適用されます。ローカルの `sqio.toml` は、
+そのファイルがあるディレクトリ、またはその配下から sqio を実行した場合のみ
+適用されます。設定は defaults、global config、nearest local `sqio.toml`、
+environment variables、CLI options の順にマージされます。
 
-Example:
+例:
 
 ```toml
 theme = "dark"
@@ -81,13 +83,13 @@ database = "/tmp/sqio.db"
 readonly = false
 ```
 
-Encrypted passwords can be decrypted with an age identity file:
+暗号化されたパスワードは age identity file で復号できます。
 
 ```bash
 sqio exec --conn prod --age-identity ~/.config/sqio/keys.txt --sql 'select 1'
 ```
 
-SSH tunnel options are available from CLI and config:
+SSH tunnel のオプションは CLI と設定ファイルの両方で利用できます。
 
 ```bash
 sqio exec \
@@ -102,29 +104,29 @@ sqio exec \
   --sql 'select 1'
 ```
 
-`query --pick` uses `fzf` when it is installed. If `fzf` is missing,
-sqio falls back to a deterministic internal picker.
+`query --pick` は `fzf` がインストールされている場合に `fzf` を使います。
+`fzf` がない場合、sqio は決定的に動作する組み込み picker にフォールバックします。
 
-Config values are overridden by environment variables and CLI options.
+設定値は environment variables と CLI options で上書きできます。
 
-## Metadata
+## メタデータ
 
-`tables`, `columns`, `ddl`, `schema export`, and `er` support SQLite,
-MySQL, and PostgreSQL metadata. Column metadata includes type, nullability,
-primary key, unique, default, and single-column foreign key references when
-the driver exposes them.
+`tables`、`columns`、`ddl`、`schema export`、`er` は SQLite、MySQL、
+PostgreSQL のメタデータに対応しています。列メタデータには、driver が提供する場合、
+type、nullability、primary key、unique、default、single-column foreign key
+references が含まれます。
 
-## Lint Rules
+## Lint ルール
 
-Built-in rules cover unsafe writes (`delete-without-where`,
-`update-without-where`, `truncate`, `drop-database`), query performance
-(`select-star`, `leading-wildcard-like`, `or-abuse`, `implicit-join`,
-`cartesian-join`, `limit-without-order`), and correctness
-(`not-in-null`). `keyword-case` is opt-in via `--enable keyword-case`.
+組み込みルールは、危険な書き込み (`delete-without-where`、
+`update-without-where`、`truncate`、`drop-database`)、クエリ性能
+(`select-star`、`leading-wildcard-like`、`or-abuse`、`implicit-join`、
+`cartesian-join`、`limit-without-order`)、正確性 (`not-in-null`) を対象にします。
+`keyword-case` は `--enable keyword-case` で有効化する opt-in ルールです。
 
 ## Smoke Test
 
-The repository includes Docker Compose services for PostgreSQL and MySQL.
+このリポジトリには PostgreSQL と MySQL の Docker Compose サービスが含まれています。
 
 ```bash
 docker compose up -d postgres mysql

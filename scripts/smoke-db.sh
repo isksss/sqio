@@ -7,6 +7,8 @@ export SQIO_HISTORY_PATH="${SQIO_HISTORY_PATH:-$(mktemp -t sqio-history-XXXXXX.d
 
 go build -o "$bin" "$root/cmd/sqio"
 
+exec </dev/null
+
 sqlite_db="$(mktemp -t sqio-sqlite-XXXXXX.db)"
 "$bin" exec --driver sqlite --database "$sqlite_db" --sql 'create table roles (id integer primary key, name text not null unique); create table users (id integer primary key, name text not null default "sqlite", email text unique, role_id integer references roles(id)); insert into roles (name) values ("admin"); insert into users (email, role_id) values ("sqlite@example.com", 1);'
 "$bin" exec --driver sqlite --database "$sqlite_db" --sql 'select name from users' --format json
