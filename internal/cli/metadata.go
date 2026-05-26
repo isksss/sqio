@@ -104,6 +104,15 @@ func newColumnsCommand() *cobra.Command {
 				if column.Primary {
 					flags += " pk"
 				}
+				if column.Unique {
+					flags += " unique"
+				}
+				if column.Default != "" {
+					flags += " default=" + column.Default
+				}
+				if column.References != "" {
+					flags += " references=" + column.References
+				}
 				fmt.Fprintf(w, "%s\t%s\t%s\n", column.Name, column.Type, flags)
 			}
 			return nil

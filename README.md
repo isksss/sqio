@@ -27,15 +27,36 @@ sqio tui --conn local
 
 ## Config
 
-Default path:
+Create a local config in the current directory:
+
+```bash
+sqio init
+```
+
+Create a global config:
+
+```bash
+sqio init -g
+```
+
+Config paths:
 
 ```text
 ~/.config/sqio/config.toml
+sqio.toml
 ```
+
+The global config is applied everywhere. A local `sqio.toml` is applied
+only when running sqio from that file's directory or its descendants.
+Config is merged in this order: defaults, global config, nearest local
+`sqio.toml`, environment variables, then CLI options.
 
 Example:
 
 ```toml
+theme = "dark"
+editor = "vi"
+
 [query]
 timeout = "30s"
 max_rows = 1000
@@ -50,6 +71,8 @@ line_width = 100
 
 [lint]
 level = "warning"
+enable = []
+disable = []
 
 [[connections]]
 name = "local"
@@ -83,6 +106,21 @@ sqio exec \
 sqio falls back to a deterministic internal picker.
 
 Config values are overridden by environment variables and CLI options.
+
+## Metadata
+
+`tables`, `columns`, `ddl`, `schema export`, and `er` support SQLite,
+MySQL, and PostgreSQL metadata. Column metadata includes type, nullability,
+primary key, unique, default, and single-column foreign key references when
+the driver exposes them.
+
+## Lint Rules
+
+Built-in rules cover unsafe writes (`delete-without-where`,
+`update-without-where`, `truncate`, `drop-database`), query performance
+(`select-star`, `leading-wildcard-like`, `or-abuse`, `implicit-join`,
+`cartesian-join`, `limit-without-order`), and correctness
+(`not-in-null`). `keyword-case` is opt-in via `--enable keyword-case`.
 
 ## Smoke Test
 

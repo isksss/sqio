@@ -19,6 +19,27 @@ func TestLintIgnore(t *testing.T) {
 	}
 }
 
+func TestLintIgnoresCommentsAndStringLiterals(t *testing.T) {
+	result := Lint("select 'select * from users' as sql -- select * from posts\n/*\nselect * from audit\n*/\nselect id from users")
+	if len(result.Issues) != 0 {
+		t.Fatalf("expected no issues, got %#v", result.Issues)
+	}
+}
+
+func TestLintWhereInCommentDoesNotHideUnsafeDelete(t *testing.T) {
+	result := Lint("delete from users /* where id = 1 */")
+	if len(result.Issues) != 1 || result.Issues[0].Rule != "delete-without-where" {
+		t.Fatalf("expected delete-without-where, got %#v", result.Issues)
+	}
+}
+
+func TestLintAllowsMultilineWhere(t *testing.T) {
+	result := Lint("delete from users\nwhere id = 1;\nupdate users\nset name = 'alice'\nwhere id = 1;")
+	if len(result.Issues) != 0 {
+		t.Fatalf("expected no issues, got %#v", result.Issues)
+	}
+}
+
 func TestLintDisable(t *testing.T) {
 	result := Lint("select * from users", Options{Disable: []string{"select-star"}})
 	if len(result.Issues) != 0 {
@@ -50,6 +71,36 @@ func TestLintJoinRules(t *testing.T) {
 		if !rules[rule] {
 			t.Fatalf("expected %s in %#v", rule, result.Issues)
 		}
+	}
+}
+
+func TestLintNullAndLimitRules(t *testing.T) {
+	result := Lint("select id from users where status not in ('active', null)\nselect id from users limit 10")
+	rules := map[string]bool{}
+	for _, issue := range result.Issues {
+		rules[issue.Rule] = true
+	}
+	for _, rule := range []string{"not-in-null", "limit-without-order"} {
+		if !rules[rule] {
+			t.Fatalf("expected %s in %#v", rule, result.Issues)
+		}
+	}
+}
+
+func TestLintLimitWithOrderBy(t *testing.T) {
+	result := Lint("select id from users\norder by id\nlimit 10")
+	if len(result.Issues) != 0 {
+		t.Fatalf("expected no issues, got %#v", result.Issues)
+	}
+}
+
+func TestLintStatementRuleLineNumber(t *testing.T) {
+	result := Lint("\n\nupdate users\nset name = 'alice';")
+	if len(result.Issues) != 1 {
+		t.Fatalf("expected 1 issue, got %#v", result.Issues)
+	}
+	if result.Issues[0].Rule != "update-without-where" || result.Issues[0].Line != 3 {
+		t.Fatalf("unexpected issue: %#v", result.Issues[0])
 	}
 }
 

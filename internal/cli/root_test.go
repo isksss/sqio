@@ -164,6 +164,81 @@ func TestER(t *testing.T) {
 	}
 }
 
+func TestInitCommandCreatesLocalConfig(t *testing.T) {
+	dir := t.TempDir()
+	current, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(current)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeForTest("init")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "sqio.toml" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "sqio.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `theme = "dark"`) || !strings.Contains(string(content), `[formatter]`) {
+		t.Fatalf("default config was not written: %s", content)
+	}
+}
+
+func TestInitCommandCreatesGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	out, err := executeForTest("init", "-g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config", "sqio", "config.toml")
+	if strings.TrimSpace(out) != path {
+		t.Fatalf("unexpected output: %q", out)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `max_rows = 1000`) || !strings.Contains(string(content), `disable = []`) {
+		t.Fatalf("default config was not written: %s", content)
+	}
+}
+
+func TestInitCommandRejectsExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	current, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(current)
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sqio.toml"), []byte("theme = \"light\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest("init")
+	if err == nil {
+		t.Fatal("expected init error")
+	}
+	if ExitCode(err) != ExitInternal {
+		t.Fatalf("expected internal exit, got %d", ExitCode(err))
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "sqio.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "theme = \"light\"\n" {
+		t.Fatalf("existing config was overwritten: %s", content)
+	}
+}
+
 func TestExecWithConfigConnection(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")

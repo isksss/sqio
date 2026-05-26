@@ -47,6 +47,7 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&global.quiet, "quiet", false, "suppress non-result output")
 	root.PersistentFlags().BoolVar(&global.noColor, "no-color", false, "disable colored output")
 	root.AddCommand(
+		newInitCommand(),
 		newExecCommand(),
 		newQueryCommand(),
 		newFmtCommand(),

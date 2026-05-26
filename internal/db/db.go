@@ -83,7 +83,7 @@ func Execute(ctx context.Context, cfg Config, sqlText string, opts ExecuteOption
 		}
 		execResult, execErr := execer.ExecContext(ctx, statement)
 		if execErr != nil {
-			return output.Result{}, err
+			return output.Result{}, execErr
 		}
 		affected, _ := execResult.RowsAffected()
 		result = output.Result{RowCount: int(affected), ElapsedMS: elapsed(started)}
@@ -138,24 +138,30 @@ func scanRows(rows *sql.Rows, maxRows int) (output.Result, error) {
 		return output.Result{}, err
 	}
 	result := output.Result{Columns: columns}
+	values := make([]interface{}, len(columns))
+	dest := make([]interface{}, len(columns))
+	for i := range values {
+		dest[i] = &values[i]
+	}
 	for rows.Next() {
 		if maxRows > 0 && len(result.Rows) >= maxRows {
 			break
 		}
-		values := make([]interface{}, len(columns))
-		dest := make([]interface{}, len(columns))
 		for i := range values {
-			dest[i] = &values[i]
+			values[i] = nil
 		}
 		if err := rows.Scan(dest...); err != nil {
 			return output.Result{}, err
 		}
+		row := make([]interface{}, len(columns))
 		for i, value := range values {
 			if bytes, ok := value.([]byte); ok {
-				values[i] = string(bytes)
+				row[i] = string(bytes)
+			} else {
+				row[i] = value
 			}
 		}
-		result.Rows = append(result.Rows, values)
+		result.Rows = append(result.Rows, row)
 	}
 	if err := rows.Err(); err != nil {
 		return output.Result{}, err
