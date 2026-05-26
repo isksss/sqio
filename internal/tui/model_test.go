@@ -121,6 +121,40 @@ func TestDetailTabs(t *testing.T) {
 	}
 }
 
+func TestToggleHelp(t *testing.T) {
+	model := New(config.Default(), true)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	model = updated.(Model)
+	if !model.showHelp {
+		t.Fatal("expected help to be visible")
+	}
+}
+
+func TestAddConnectionFlow(t *testing.T) {
+	model := New(config.Default(), true)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(Model)
+	if !model.addingConnection {
+		t.Fatal("expected add-connection mode")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("local")})
+	model = updated.(Model)
+	for i := 0; i < 6; i++ {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+		model = updated.(Model)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected metadata reload command")
+	}
+	if model.execOpts.Driver != "postgres" || !strings.Contains(model.execOpts.DSN, "postgres") {
+		t.Fatalf("unexpected exec opts: %#v", model.execOpts)
+	}
+	if model.activeConnection != "local" {
+		t.Fatalf("unexpected active connection: %s", model.activeConnection)
+	}
+}
 func TestViewIncludesPanels(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
