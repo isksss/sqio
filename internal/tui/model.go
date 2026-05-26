@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,36 +11,48 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/isksss/sqio/internal/config"
+	"github.com/isksss/sqio/internal/db"
 	"github.com/isksss/sqio/internal/output"
 	"github.com/isksss/sqio/internal/service"
 )
 
+type ConnectionEntry struct {
+	Name   string
+	Driver string
+	DSN    string
+}
+
 type Model struct {
-	cfg       config.Config
-	metadata  service.MetadataService
-	executor  service.Executor
-	execOpts  service.ExecOptions
-	width     int
-	height    int
-	focus     int
-	input     textinput.Model
-	status    string
-	result    string
-	rows      [][]interface{}
-	columns   []string
-	rowStart  int
-	detailTab int
-	noColor   bool
-	objects   []string
-	tables    []service.Table
-	selected  int
+	cfg              config.Config
+	metadata         service.MetadataService
+	executor         service.Executor
+	execOpts         service.ExecOptions
+	width            int
+	height           int
+	focus            int
+	input            textinput.Model
+	status           string
+	result           string
+	rows             [][]interface{}
+	columns          []string
+	rowStart         int
+	detailTab        int
+	noColor          bool
+	objects          []string
+	tables           []service.Table
+	selected         int
+	showHelp         bool
+	addingConnection bool
+	connections      []ConnectionEntry
+	activeConnection string
+	connInputs       []textinput.Model
+	connFocus        int
 }
 
 type metadataMsg struct {
 	tables []service.Table
 	err    error
 }
-
 type execResultMsg struct {
 	result output.Result
 	err    error
@@ -48,41 +61,37 @@ type execResultMsg struct {
 func New(cfg config.Config, noColor bool) Model {
 	return NewWithMetadata(cfg, service.NewMetadataService(), noColor)
 }
-
 func NewWithMetadata(cfg config.Config, metadata service.MetadataService, noColor bool) Model {
 	return NewWithServices(cfg, metadata, service.Executor{}, service.ExecOptions{Format: cfg.Query.Format, MaxRows: cfg.Query.MaxRows}, noColor)
 }
-
 func NewWithServices(cfg config.Config, metadata service.MetadataService, executor service.Executor, execOpts service.ExecOptions, noColor bool) Model {
 	input := textinput.New()
 	input.Placeholder = "select 1"
 	input.Prompt = "sql> "
 	input.Focus()
-	return Model{
-		cfg:      cfg,
-		metadata: metadata,
-		executor: executor,
-		execOpts: execOpts,
-		input:    input,
-		status:   "loading metadata",
-		noColor:  noColor,
-		objects:  []string{"loading"},
+	connections := make([]ConnectionEntry, 0, len(cfg.Connections))
+	for _, conn := range cfg.Connections {
+		connections = append(connections, ConnectionEntry{Name: conn.Name, Driver: conn.Driver, DSN: conn.DSN})
 	}
+	return Model{cfg: cfg, metadata: metadata, executor: executor, execOpts: execOpts, input: input, status: "loading metadata", noColor: noColor, objects: []string{"loading"}, connections: connections}
 }
-
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, loadMetadata(m.metadata))
-}
+func (m Model) Init() tea.Cmd { return tea.Batch(textinput.Blink, loadMetadata(m.metadata)) }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
+		if m.addingConnection {
+			return m.updateAddConnection(msg)
+		}
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = !m.showHelp
+		case "a":
+			m.startAddConnection()
 		case "tab":
 			m.focus = (m.focus + 1) % 3
 		case "[", "shift+tab":
@@ -150,8 +159,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.objects = make([]string, 0, len(msg.tables))
 		m.tables = msg.tables
-		for _, table := range msg.tables {
-			m.objects = append(m.objects, table.Name)
+		for _, t := range msg.tables {
+			m.objects = append(m.objects, t.Name)
 		}
 		if len(m.objects) == 0 {
 			m.objects = []string{"no tables"}
@@ -177,54 +186,52 @@ func (m Model) View() string {
 	tree := m.panel("object tree", m.renderTree(), treeWidth, topHeight, m.focus == 0)
 	detail := m.panel("detail", m.renderDetail(), detailWidth, topHeight, m.focus == 1)
 	console := m.panel("sql console", m.input.View()+"\n"+m.status, m.width, 4, m.focus == 2)
-	return lipgloss.JoinHorizontal(lipgloss.Top, tree, detail) + "\n" + console
+	v := lipgloss.JoinHorizontal(lipgloss.Top, tree, detail) + "\n" + console
+	if m.showHelp {
+		v += "\n" + m.renderHelp()
+	}
+	if m.addingConnection {
+		v += "\n" + m.renderAddConnection()
+	}
+	return v
 }
 
 func (m Model) renderTree() string {
 	lines := make([]string, len(m.objects))
-	for i, object := range m.objects {
-		prefix := "  "
+	for i, o := range m.objects {
+		p := "  "
 		if i == m.selected {
-			prefix = "> "
+			p = "> "
 		}
-		lines[i] = prefix + object
+		lines[i] = p + o
 	}
 	return strings.Join(lines, "\n")
 }
-
 func (m Model) renderDetail() string {
 	if len(m.objects) == 0 {
 		return "no object"
 	}
-	body := fmt.Sprintf("selected: %s\n%s", m.objects[m.selected], m.renderDetailTabs())
+	body := fmt.Sprintf("selected: %s\nconnection: %s\n%s", m.objects[m.selected], m.currentConnectionLabel(), m.renderDetailTabs())
 	if m.selected < len(m.tables) {
-		table := m.tables[m.selected]
+		t := m.tables[m.selected]
 		switch detailTabs[m.detailTab] {
 		case "columns":
 			lines := []string{"", "columns"}
-			for _, column := range table.Columns {
-				flags := ""
-				if column.Primary {
-					flags += " pk"
+			for _, c := range t.Columns {
+				f := ""
+				if c.Primary {
+					f += " pk"
 				}
-				if !column.Nullable {
-					flags += " not-null"
+				if !c.Nullable {
+					f += " not-null"
 				}
-				lines = append(lines, fmt.Sprintf("%s\t%s%s", column.Name, column.Type, flags))
+				lines = append(lines, fmt.Sprintf("%s\t%s%s", c.Name, c.Type, f))
 			}
 			body += "\n" + strings.Join(lines, "\n")
 		case "ddl":
-			if table.DDL != "" {
-				body += "\n\nddl\n" + table.DDL
-			} else {
-				body += "\n\nddl\n"
-			}
+			body += "\n\nddl\n" + t.DDL
 		case "result":
-			if strings.TrimSpace(m.result) != "" {
-				body += "\n\nresult\n" + m.result
-			} else {
-				body += "\n\nresult\n"
-			}
+			body += "\n\nresult\n" + m.result
 		}
 	}
 	return body
@@ -234,16 +241,15 @@ var detailTabs = []string{"columns", "ddl", "result"}
 
 func (m Model) renderDetailTabs() string {
 	parts := make([]string, len(detailTabs))
-	for i, tab := range detailTabs {
+	for i, t := range detailTabs {
 		if i == m.detailTab {
-			parts[i] = "[" + tab + "]"
-			continue
+			parts[i] = "[" + t + "]"
+		} else {
+			parts[i] = " " + t + " "
 		}
-		parts[i] = " " + tab + " "
 	}
 	return strings.Join(parts, " ")
 }
-
 func (m Model) panel(title, body string, width, height int, focused bool) string {
 	border := lipgloss.NormalBorder()
 	if focused {
@@ -253,25 +259,23 @@ func (m Model) panel(title, body string, width, height int, focused bool) string
 	if !m.noColor && focused {
 		style = style.BorderForeground(lipgloss.Color("39"))
 	}
-	content := title + "\n" + body
-	return style.Render(content)
+	return style.Render(title + "\n" + body)
 }
 
 func runSQL(executor service.Executor, opts service.ExecOptions, sql string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		result, err := executor.Exec(ctx, sql, opts)
-		return execResultMsg{result: result, err: err}
+		r, e := executor.Exec(ctx, sql, opts)
+		return execResultMsg{result: r, err: e}
 	}
 }
-
 func loadMetadata(metadata service.MetadataService) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		tables, err := metadata.Tables(ctx)
-		return metadataMsg{tables: tables, err: err}
+		t, e := metadata.Tables(ctx)
+		return metadataMsg{tables: t, err: e}
 	}
 }
 
@@ -286,22 +290,113 @@ func (m Model) renderResultWindow() string {
 		end = len(m.rows)
 	}
 	lines := []string{strings.Join(m.columns, "\t")}
-	for _, row := range m.rows[m.rowStart:end] {
-		values := make([]string, len(row))
-		for i, value := range row {
-			values[i] = fmt.Sprint(value)
+	for _, r := range m.rows[m.rowStart:end] {
+		vals := make([]string, len(r))
+		for i, v := range r {
+			vals[i] = fmt.Sprint(v)
 		}
-		lines = append(lines, strings.Join(values, "\t"))
+		lines = append(lines, strings.Join(vals, "\t"))
 	}
 	if len(m.rows) > resultWindowSize {
 		lines = append(lines, fmt.Sprintf("[%d-%d/%d]", m.rowStart+1, end, len(m.rows)))
 	}
 	return strings.Join(lines, "\n")
 }
-
 func max(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
+}
+
+func (m *Model) startAddConnection() {
+	m.addingConnection = true
+	m.connFocus = 0
+	m.connInputs = make([]textinput.Model, 7)
+	labels := []string{"name", "driver", "host", "port", "database", "user", "password"}
+	defaults := []string{"", "postgres", "localhost", "5432", "", "", ""}
+	for i := range m.connInputs {
+		ti := textinput.New()
+		ti.Prompt = labels[i] + ": "
+		ti.Placeholder = defaults[i]
+		ti.SetValue(defaults[i])
+		if i == 0 {
+			ti.Focus()
+		} else {
+			ti.Blur()
+		}
+		m.connInputs[i] = ti
+	}
+	m.status = "新規DB接続を追加中: Tabで項目移動、Enterで確定"
+}
+func (m Model) updateAddConnection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.addingConnection = false
+		m.status = "DB追加をキャンセルしました"
+		return m, nil
+	case "tab", "shift+tab":
+		m.connInputs[m.connFocus].Blur()
+		if msg.String() == "tab" {
+			m.connFocus = (m.connFocus + 1) % len(m.connInputs)
+		} else {
+			m.connFocus = (m.connFocus - 1 + len(m.connInputs)) % len(m.connInputs)
+		}
+		m.connInputs[m.connFocus].Focus()
+		return m, nil
+	case "enter":
+		name := strings.TrimSpace(m.connInputs[0].Value())
+		driver := strings.TrimSpace(m.connInputs[1].Value())
+		host := strings.TrimSpace(m.connInputs[2].Value())
+		portText := strings.TrimSpace(m.connInputs[3].Value())
+		dbName := strings.TrimSpace(m.connInputs[4].Value())
+		user := strings.TrimSpace(m.connInputs[5].Value())
+		password := m.connInputs[6].Value()
+		if name == "" || driver == "" {
+			m.status = "name/driver は必須です"
+			return m, nil
+		}
+		port, _ := strconv.Atoi(portText)
+		dsn, err := db.DSN(db.Connection{Driver: driver, Host: host, Port: port, Database: dbName, User: user, Password: password})
+		if err != nil {
+			m.status = "接続情報エラー: " + err.Error()
+			return m, nil
+		}
+		entry := ConnectionEntry{Name: name, Driver: driver, DSN: dsn}
+		m.connections = append(m.connections, entry)
+		m.execOpts.Driver = driver
+		m.execOpts.DSN = dsn
+		m.metadata = service.NewConnectedMetadataService(driver, dsn)
+		m.activeConnection = name
+		m.addingConnection = false
+		m.status = fmt.Sprintf("接続 '%s' を追加して接続しました", name)
+		return m, loadMetadata(m.metadata)
+	}
+	var cmd tea.Cmd
+	m.connInputs[m.connFocus], cmd = m.connInputs[m.connFocus].Update(msg)
+	return m, cmd
+}
+
+func (m Model) renderHelp() string {
+	return "help: q/ctrl+c=quit, tab=focus, j/k=move, [/] = detail tab, enter=run sql, PgUp/PgDn=result scroll, a=新規DB追加, ?=help"
+}
+func (m Model) renderAddConnection() string {
+	lines := []string{"[DB追加] Tab/Shift+Tab:項目移動 Enter:確定 Esc:キャンセル"}
+	for i, in := range m.connInputs {
+		p := "  "
+		if i == m.connFocus {
+			p = "> "
+		}
+		lines = append(lines, p+in.View())
+	}
+	return strings.Join(lines, "\n")
+}
+func (m Model) currentConnectionLabel() string {
+	if m.activeConnection != "" {
+		return m.activeConnection
+	}
+	if m.execOpts.Driver != "" || m.execOpts.DSN != "" {
+		return fmt.Sprintf("%s (direct)", m.execOpts.Driver)
+	}
+	return "default(mock)"
 }
