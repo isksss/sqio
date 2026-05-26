@@ -24,10 +24,13 @@ type Table struct {
 }
 
 type Column struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Nullable bool   `json:"nullable"`
-	Primary  bool   `json:"primary"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Nullable   bool   `json:"nullable"`
+	Primary    bool   `json:"primary"`
+	Unique     bool   `json:"unique,omitempty"`
+	Default    string `json:"default,omitempty"`
+	References string `json:"references,omitempty"`
 }
 
 func NewMetadataService() MetadataService {
@@ -185,10 +188,13 @@ func fromDBSchema(schema db.SchemaInfo) Schema {
 		columns := make([]Column, 0, len(table.Columns))
 		for _, column := range table.Columns {
 			columns = append(columns, Column{
-				Name:     column.Name,
-				Type:     column.Type,
-				Nullable: column.Nullable,
-				Primary:  column.Primary,
+				Name:       column.Name,
+				Type:       column.Type,
+				Nullable:   column.Nullable,
+				Primary:    column.Primary,
+				Unique:     column.Unique,
+				Default:    column.Default,
+				References: column.References,
 			})
 		}
 		tables = append(tables, Table{Name: table.Name, Columns: columns, DDL: table.DDL})

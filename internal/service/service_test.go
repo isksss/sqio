@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/isksss/sqio/internal/db"
 )
 
 func TestExecSelectOne(t *testing.T) {
@@ -33,5 +35,19 @@ func TestMetadataMermaidER(t *testing.T) {
 	}
 	if !strings.Contains(diagram, "erDiagram") {
 		t.Fatalf("unexpected diagram: %s", diagram)
+	}
+}
+
+func TestFromDBSchemaPreservesColumnMetadata(t *testing.T) {
+	schema := fromDBSchema(db.SchemaInfo{Tables: []db.TableInfo{{
+		Name: "users",
+		Columns: []db.ColumnInfo{{
+			Name: "email", Type: "text", Nullable: false, Unique: true, Default: "''", References: "profiles(email)",
+		}},
+		DDL: "CREATE TABLE users (email text not null unique default '' references profiles(email));",
+	}}})
+	column := schema.Tables[0].Columns[0]
+	if !column.Unique || column.Default != "''" || column.References != "profiles(email)" {
+		t.Fatalf("column metadata was not preserved: %+v", column)
 	}
 }
