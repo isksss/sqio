@@ -60,6 +60,12 @@ jobs:
           exit 1
 
       - name: Run database smoke tests
+        env:
+          SQIO_SMOKE_DRIVERS: sqlite,duckdb,postgres,mysql
+          SQIO_POSTGRES_HOST: 127.0.0.1
+          SQIO_POSTGRES_PORT: "15432"
+          SQIO_MYSQL_HOST: 127.0.0.1
+          SQIO_MYSQL_PORT: "13306"
         run: bash scripts/smoke-db.sh
 
       - name: Stop databases
