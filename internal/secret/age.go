@@ -1,3 +1,4 @@
+// Package secret resolves encrypted configuration values.
 package secret
 
 import (
@@ -10,6 +11,8 @@ import (
 	"filippo.io/age/armor"
 )
 
+// DecryptAge decrypts an age-encrypted value using identities from identityPath.
+// Both armored and raw age payloads are supported.
 func DecryptAge(ciphertext, identityPath string) (string, error) {
 	if identityPath == "" {
 		return "", fmt.Errorf("age identity is required")

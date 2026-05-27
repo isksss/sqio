@@ -1,3 +1,4 @@
+// Package history stores executed SQL statements in a local SQLite database.
 package history
 
 import (
@@ -10,6 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Entry represents one executed SQL statement persisted in history.
 type Entry struct {
 	ID         int64     `json:"id"`
 	SQL        string    `json:"sql"`
@@ -20,10 +22,13 @@ type Entry struct {
 	Favorite   bool      `json:"favorite"`
 }
 
+// Store manages the SQLite-backed history database at a specific path.
 type Store struct {
 	path string
 }
 
+// New returns a Store using path, SQIO_HISTORY_PATH, or the default per-user
+// history location in that order.
 func New(path string) Store {
 	if path == "" {
 		path = os.Getenv("SQIO_HISTORY_PATH")
@@ -34,6 +39,9 @@ func New(path string) Store {
 	return Store{path: path}
 }
 
+// DefaultPath returns the conventional sqio history database path for the
+// current user, falling back to the temporary directory when the home directory
+// cannot be resolved.
 func DefaultPath() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		_ = dir
@@ -45,6 +53,8 @@ func DefaultPath() string {
 	return filepath.Join(home, ".local", "share", "sqio", "history.db")
 }
 
+// Append inserts entry into history, assigning the current UTC time when
+// ExecutedAt is not already set.
 func (s Store) Append(ctx context.Context, entry Entry) error {
 	conn, err := s.open(ctx)
 	if err != nil {
@@ -59,6 +69,8 @@ func (s Store) Append(ctx context.Context, entry Entry) error {
 	return err
 }
 
+// List returns recent history entries in reverse insertion order. A non-positive
+// limit uses the default maximum of one hundred rows.
 func (s Store) List(ctx context.Context, limit int) ([]Entry, error) {
 	if limit <= 0 {
 		limit = 100
@@ -86,6 +98,8 @@ func (s Store) List(ctx context.Context, limit int) ([]Entry, error) {
 	return entries, rows.Err()
 }
 
+// open creates the history directory, opens the SQLite database, and ensures
+// the schema exists before returning the connection.
 func (s Store) open(ctx context.Context) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return nil, err

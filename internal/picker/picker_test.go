@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestSQLFiles verifies the behavior covered by this test helper or case.
 func TestSQLFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.sql"), []byte("select 1"), 0o644); err != nil {
@@ -23,6 +24,7 @@ func TestSQLFiles(t *testing.T) {
 	}
 }
 
+// TestPickFallback verifies the behavior covered by this test helper or case.
 func TestPickFallback(t *testing.T) {
 	got, err := Pick([]string{"a.sql", "b.sql"})
 	if err != nil {

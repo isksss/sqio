@@ -1,3 +1,4 @@
+// Package linter implements sqio's SQL safety and style checks.
 package linter
 
 import (
@@ -6,6 +7,8 @@ import (
 	"github.com/isksss/sqio/internal/query"
 )
 
+// Issue describes one lint finding with enough metadata for text and structured
+// output formats.
 type Issue struct {
 	Line     int    `json:"line"`
 	Rule     string `json:"rule"`
@@ -13,10 +16,13 @@ type Issue struct {
 	Message  string `json:"message"`
 }
 
+// Result is the complete lint response for one SQL input.
 type Result struct {
 	Issues []Issue `json:"issues"`
 }
 
+// Options controls which lint rules are enabled, disabled, or filtered by
+// severity.
 type Options struct {
 	Dialect string
 	Level   string
@@ -24,6 +30,9 @@ type Options struct {
 	Disable []string
 }
 
+// Lint analyzes SQL text and returns style, safety, and performance findings.
+// It ignores comments and string literals for checks that should only consider
+// executable SQL.
 func Lint(sql string, opts ...Options) Result {
 	options := Options{Level: "warning"}
 	if len(opts) > 0 {
@@ -93,6 +102,8 @@ func Lint(sql string, opts ...Options) Result {
 	return Result{Issues: issues}
 }
 
+// appendIssue appends issue only when its severity is at least the requested
+// level, allowing callers to filter low-priority findings early.
 func appendIssue(issues []Issue, level string, issue Issue) []Issue {
 	if severityRank(issue.Severity) < severityRank(level) {
 		return issues
@@ -100,6 +111,8 @@ func appendIssue(issues []Issue, level string, issue Issue) []Issue {
 	return append(issues, issue)
 }
 
+// hasImplicitJoin reports comma-separated tables in a FROM clause, which is
+// usually harder to read and easier to misuse than explicit JOIN syntax.
 func hasImplicitJoin(line string) bool {
 	fromIdx := strings.Index(line, " from ")
 	if strings.HasPrefix(line, "from ") {
@@ -116,10 +129,13 @@ func hasImplicitJoin(line string) bool {
 	return strings.Contains(tail, ",")
 }
 
+// hasCartesianJoin reports JOIN clauses that do not include ON or USING.
 func hasCartesianJoin(line string) bool {
 	return strings.Contains(line, " join ") && !strings.Contains(line, " on ") && !strings.Contains(line, " using ")
 }
 
+// hasNotInNull reports NOT IN expressions whose list contains NULL, a pattern
+// that prevents matches under SQL's three-valued logic.
 func hasNotInNull(line string) bool {
 	if !strings.Contains(line, " not in ") {
 		return false
@@ -127,10 +143,13 @@ func hasNotInNull(line string) bool {
 	return strings.Contains(line, "(null") || strings.Contains(line, ", null") || strings.Contains(line, " null,") || strings.Contains(line, " null)")
 }
 
+// hasLimitWithoutOrder reports LIMIT clauses that do not include ORDER BY.
 func hasLimitWithoutOrder(line string) bool {
 	return strings.Contains(line, " limit ") && !strings.Contains(line, " order by ")
 }
 
+// hasLowercaseKeyword reports whether a supported SQL keyword appears in lower
+// case on the analyzed line.
 func hasLowercaseKeyword(line string) bool {
 	for _, keyword := range []string{"select", "from", "where", "insert", "update", "delete", "join"} {
 		if strings.Contains(line, keyword) {
@@ -140,6 +159,7 @@ func hasLowercaseKeyword(line string) bool {
 	return false
 }
 
+// severityRank converts a severity label into an ordered value for filtering.
 func severityRank(severity string) int {
 	switch strings.ToLower(severity) {
 	case "error":

@@ -9,6 +9,8 @@ import (
 	"github.com/isksss/sqio/internal/tunnel"
 )
 
+// connectionOptions contains flags that identify a database connection or SSH
+// tunnel.
 type connectionOptions struct {
 	conn          string
 	driver        string
@@ -29,6 +31,8 @@ type connectionOptions struct {
 	sshPrivateKey string
 }
 
+// resolveConnection resolves execOptions into a driver and DSN for tests and
+// compatibility helpers.
 func resolveConnection(cfg config.Config, opts execOptions) (string, string, error) {
 	driver, dsn, cleanup, err := prepareConnection(context.Background(), cfg, opts.connectionOptions)
 	if cleanup != nil {
@@ -37,6 +41,7 @@ func resolveConnection(cfg config.Config, opts execOptions) (string, string, err
 	return driver, dsn, err
 }
 
+// resolveConnectionOptions resolves connectionOptions into a driver and DSN.
 func resolveConnectionOptions(cfg config.Config, opts connectionOptions) (string, string, error) {
 	driver, dsn, cleanup, err := prepareConnection(context.Background(), cfg, opts)
 	if cleanup != nil {
@@ -45,6 +50,9 @@ func resolveConnectionOptions(cfg config.Config, opts connectionOptions) (string
 	return driver, dsn, err
 }
 
+// prepareConnection merges CLI flags with named configuration, decrypts
+// password values when requested, starts an optional SSH tunnel, and returns a
+// cleanup function for transient resources.
 func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOptions) (string, string, func(), error) {
 	passwordEncrypted := false
 	conn := db.Connection{
@@ -128,6 +136,8 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 	return conn.Driver, dsn, cleanup, nil
 }
 
+// readonlyEnabled reports whether readonly safety checks should be enforced for
+// the selected connection.
 func readonlyEnabled(cfg config.Config, opts connectionOptions) bool {
 	if opts.readonly {
 		return true
@@ -139,6 +149,8 @@ func readonlyEnabled(cfg config.Config, opts connectionOptions) bool {
 	return err == nil && configConn.Readonly
 }
 
+// addConnectionFlags registers shared database and SSH connection flags on a
+// command.
 func addConnectionFlags(flags interface {
 	StringVar(*string, string, string, string)
 	IntVar(*int, string, int, string)
@@ -163,6 +175,7 @@ func addConnectionFlags(flags interface {
 	flags.StringVar(&opts.sshPrivateKey, "ssh-private-key", "", "SSH tunnel private key")
 }
 
+// firstNonEmpty returns the first non-empty string in values.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -172,6 +185,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// firstNonZero returns the first non-zero integer in values.
 func firstNonZero(values ...int) int {
 	for _, value := range values {
 		if value != 0 {
@@ -181,6 +195,7 @@ func firstNonZero(values ...int) int {
 	return 0
 }
 
+// defaultPort returns the conventional TCP port for known database drivers.
 func defaultPort(driver string) int {
 	switch driver {
 	case "postgres", "postgresql", "pgx":

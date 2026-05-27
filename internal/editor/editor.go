@@ -1,3 +1,4 @@
+// Package editor opens SQL text in the user's preferred external editor.
 package editor
 
 import (
@@ -6,6 +7,8 @@ import (
 	"path/filepath"
 )
 
+// Select chooses the editor executable from environment variables, falling back
+// to vi when no preference is configured.
 func Select() string {
 	for _, key := range []string{"DBTUI_EDITOR", "VISUAL", "EDITOR"} {
 		if value := os.Getenv(key); value != "" {
@@ -15,6 +18,8 @@ func Select() string {
 	return "vi"
 }
 
+// Edit writes initial SQL into a temporary file, opens it in the selected
+// editor, and returns the edited contents.
 func Edit(initial string) (string, error) {
 	dir := filepath.Join(os.TempDir(), "sqio")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

@@ -1,3 +1,4 @@
+// Package cli wires Cobra commands to sqio services and terminal I/O.
 package cli
 
 import (
@@ -12,14 +13,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// globalOptions stores root-level flags shared by all commands.
 type globalOptions struct {
 	configPath string
 	quiet      bool
 	noColor    bool
 }
 
+// global holds the current invocation's root-level options.
 var global globalOptions
 
+// Execute builds and runs the root command with signal-aware context handling.
 func Execute() error {
 	root := newRootCommand()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -35,6 +39,7 @@ func Execute() error {
 	return nil
 }
 
+// newRootCommand creates the top-level sqio command and registers subcommands.
 func newRootCommand() *cobra.Command {
 	global = globalOptions{}
 	root := &cobra.Command{
@@ -63,6 +68,8 @@ func newRootCommand() *cobra.Command {
 	return root
 }
 
+// loadConfig loads configuration using the active global --config flag and wraps
+// configuration failures in a CLI error.
 func loadConfig() (config.Config, error) {
 	cfg, err := config.Load(global.configPath)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestReadSQL verifies the behavior covered by this test helper or case.
 func TestReadSQL(t *testing.T) {
 	got, err := Read(Source{SQL: "select 1"})
 	if err != nil {
@@ -15,6 +16,7 @@ func TestReadSQL(t *testing.T) {
 	}
 }
 
+// TestStatements verifies the behavior covered by this test helper or case.
 func TestStatements(t *testing.T) {
 	got := Statements("select 1; select 2;")
 	if len(got) != 2 {
@@ -22,6 +24,7 @@ func TestStatements(t *testing.T) {
 	}
 }
 
+// TestStatementsIgnoresSemicolonInLiteralAndComment verifies the behavior covered by this test helper or case.
 func TestStatementsIgnoresSemicolonInLiteralAndComment(t *testing.T) {
 	got := Statements("select ';' as value; -- ;\nselect 'ok;still ok';")
 	if len(got) != 2 {
@@ -29,6 +32,7 @@ func TestStatementsIgnoresSemicolonInLiteralAndComment(t *testing.T) {
 	}
 }
 
+// TestStatementsWithLine verifies the behavior covered by this test helper or case.
 func TestStatementsWithLine(t *testing.T) {
 	got := StatementsWithLine("\nselect 1;\n\n-- comment\nselect 2;")
 	if len(got) != 2 {
@@ -39,6 +43,7 @@ func TestStatementsWithLine(t *testing.T) {
 	}
 }
 
+// TestReadMultipleInputs verifies the behavior covered by this test helper or case.
 func TestReadMultipleInputs(t *testing.T) {
 	_, err := Read(Source{SQL: "select 1", File: "query.sql", In: strings.NewReader("select 2")})
 	if err != ErrMultipleInputs {
@@ -46,6 +51,7 @@ func TestReadMultipleInputs(t *testing.T) {
 	}
 }
 
+// TestDangerous verifies the behavior covered by this test helper or case.
 func TestDangerous(t *testing.T) {
 	danger, ok := Dangerous("delete from users")
 	if !ok {
@@ -56,6 +62,7 @@ func TestDangerous(t *testing.T) {
 	}
 }
 
+// TestDangerousIgnoresWhereInComment verifies the behavior covered by this test helper or case.
 func TestDangerousIgnoresWhereInComment(t *testing.T) {
 	danger, ok := Dangerous("delete from users /* where id = 1 */")
 	if !ok {
@@ -66,6 +73,7 @@ func TestDangerousIgnoresWhereInComment(t *testing.T) {
 	}
 }
 
+// TestMutating verifies the behavior covered by this test helper or case.
 func TestMutating(t *testing.T) {
 	if !Mutating("insert into users (name) values ('a')") {
 		t.Fatal("expected mutating query")
@@ -75,6 +83,7 @@ func TestMutating(t *testing.T) {
 	}
 }
 
+// TestMutatingIgnoresKeywordInComment verifies the behavior covered by this test helper or case.
 func TestMutatingIgnoresKeywordInComment(t *testing.T) {
 	if Mutating("-- select only\ninsert into users (name) values ('a')") != true {
 		t.Fatal("expected mutating query")

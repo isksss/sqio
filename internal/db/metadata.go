@@ -7,16 +7,20 @@ import (
 	"strings"
 )
 
+// SchemaInfo is database metadata collected from a live connection.
 type SchemaInfo struct {
 	Tables []TableInfo `json:"tables"`
 }
 
+// TableInfo describes one table or view and its reconstructed DDL when
+// available.
 type TableInfo struct {
 	Name    string       `json:"name"`
 	Columns []ColumnInfo `json:"columns"`
 	DDL     string       `json:"ddl"`
 }
 
+// ColumnInfo describes one column and common relational constraints.
 type ColumnInfo struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
@@ -27,6 +31,7 @@ type ColumnInfo struct {
 	References string `json:"references,omitempty"`
 }
 
+// Metadata opens cfg and dispatches to the dialect-specific metadata reader.
 func Metadata(ctx context.Context, cfg Config) (SchemaInfo, error) {
 	conn, driver, err := Open(ctx, cfg)
 	if err != nil {
@@ -45,6 +50,8 @@ func Metadata(ctx context.Context, cfg Config) (SchemaInfo, error) {
 	}
 }
 
+// sqliteMetadata reads SQLite table and view definitions from sqlite_master and
+// augments them with PRAGMA-based column metadata.
 func sqliteMetadata(ctx context.Context, conn *sql.DB) (SchemaInfo, error) {
 	rows, err := conn.QueryContext(ctx, `select name, sql from sqlite_master where type in ('table', 'view') and name not like 'sqlite_%' order by name`)
 	if err != nil {
@@ -71,6 +78,8 @@ func sqliteMetadata(ctx context.Context, conn *sql.DB) (SchemaInfo, error) {
 	return schema, nil
 }
 
+// sqliteColumns reads SQLite column metadata and merges uniqueness and foreign
+// key information from separate PRAGMA calls.
 func sqliteColumns(ctx context.Context, conn *sql.DB, tableName string) ([]ColumnInfo, error) {
 	rows, err := conn.QueryContext(ctx, `pragma table_info(`+quoteSQLiteIdent(tableName)+`)`)
 	if err != nil {
@@ -108,6 +117,8 @@ func sqliteColumns(ctx context.Context, conn *sql.DB, tableName string) ([]Colum
 	return columns, rows.Err()
 }
 
+// sqliteForeignKeys returns single-column foreign key references keyed by local
+// column name.
 func sqliteForeignKeys(ctx context.Context, conn *sql.DB, tableName string) (map[string]string, error) {
 	rows, err := conn.QueryContext(ctx, `pragma foreign_key_list(`+quoteSQLiteIdent(tableName)+`)`)
 	if err != nil {
@@ -126,6 +137,7 @@ func sqliteForeignKeys(ctx context.Context, conn *sql.DB, tableName string) (map
 	return foreignKeys, rows.Err()
 }
 
+// sqliteUniqueColumns returns columns covered by a single-column unique index.
 func sqliteUniqueColumns(ctx context.Context, conn *sql.DB, tableName string) (map[string]bool, error) {
 	rows, err := conn.QueryContext(ctx, `pragma index_list(`+quoteSQLiteIdent(tableName)+`)`)
 	if err != nil {
@@ -155,6 +167,7 @@ func sqliteUniqueColumns(ctx context.Context, conn *sql.DB, tableName string) (m
 	return uniqueColumns, rows.Err()
 }
 
+// sqliteIndexColumns returns the ordered column names for a SQLite index.
 func sqliteIndexColumns(ctx context.Context, conn *sql.DB, indexName string) ([]string, error) {
 	rows, err := conn.QueryContext(ctx, `pragma index_info(`+quoteSQLiteIdent(indexName)+`)`)
 	if err != nil {
@@ -173,10 +186,13 @@ func sqliteIndexColumns(ctx context.Context, conn *sql.DB, indexName string) ([]
 	return columns, rows.Err()
 }
 
+// quoteSQLiteIdent quotes a SQLite identifier for use in PRAGMA statements.
 func quoteSQLiteIdent(identifier string) string {
 	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
+// mysqlMetadata reads tables from the current MySQL database and reconstructs
+// portable DDL from information_schema column metadata.
 func mysqlMetadata(ctx context.Context, conn *sql.DB) (SchemaInfo, error) {
 	rows, err := conn.QueryContext(ctx, `
 select table_name
@@ -206,6 +222,8 @@ order by table_name`)
 	return schema, rows.Err()
 }
 
+// mysqlColumns reads MySQL column, key, default, and single-column foreign key
+// metadata for tableName.
 func mysqlColumns(ctx context.Context, conn *sql.DB, tableName string) ([]ColumnInfo, error) {
 	rows, err := conn.QueryContext(ctx, `
 select c.column_name,
@@ -255,6 +273,8 @@ order by ordinal_position`, tableName)
 	return columns, rows.Err()
 }
 
+// mysqlDDL renders a compact MySQL CREATE TABLE statement from collected
+// metadata.
 func mysqlDDL(table TableInfo) string {
 	parts := make([]string, 0, len(table.Columns))
 	for _, column := range table.Columns {
@@ -279,6 +299,8 @@ func mysqlDDL(table TableInfo) string {
 	return fmt.Sprintf("CREATE TABLE `%s` (%s);", strings.ReplaceAll(table.Name, "`", "``"), strings.Join(parts, ", "))
 }
 
+// postgresMetadata reads tables from the current PostgreSQL schema and builds
+// table metadata from pg_catalog.
 func postgresMetadata(ctx context.Context, conn *sql.DB) (SchemaInfo, error) {
 	rows, err := conn.QueryContext(ctx, `
 select table_name
@@ -308,6 +330,8 @@ order by table_name`)
 	return schema, rows.Err()
 }
 
+// postgresColumns reads PostgreSQL column, default, uniqueness, primary key,
+// and single-column foreign key metadata for tableName.
 func postgresColumns(ctx context.Context, conn *sql.DB, tableName string) ([]ColumnInfo, error) {
 	rows, err := conn.QueryContext(ctx, `
 select a.attname,
@@ -381,6 +405,8 @@ order by a.attnum`, tableName)
 	return columns, rows.Err()
 }
 
+// postgresDDL renders a compact PostgreSQL CREATE TABLE statement from
+// collected metadata.
 func postgresDDL(table TableInfo) string {
 	parts := make([]string, 0, len(table.Columns))
 	for _, column := range table.Columns {

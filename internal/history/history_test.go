@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestAppendAndList verifies the behavior covered by this test helper or case.
 func TestAppendAndList(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "history.db"))
 	err := store.Append(context.Background(), Entry{SQL: "select 1", Connection: "local", ElapsedMS: 10})

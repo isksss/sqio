@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestDSNSQLite verifies the behavior covered by this test helper or case.
 func TestDSNSQLite(t *testing.T) {
 	got, err := DSN(Connection{Driver: "sqlite", Database: "test.db"})
 	if err != nil {
@@ -15,6 +16,7 @@ func TestDSNSQLite(t *testing.T) {
 	}
 }
 
+// TestDSNPostgres verifies the behavior covered by this test helper or case.
 func TestDSNPostgres(t *testing.T) {
 	got, err := DSN(Connection{Driver: "postgres", Host: "localhost", Database: "app", User: "app", Password: "secret", SSLMode: "require"})
 	if err != nil {
@@ -25,6 +27,7 @@ func TestDSNPostgres(t *testing.T) {
 	}
 }
 
+// TestDSNMySQL verifies the behavior covered by this test helper or case.
 func TestDSNMySQL(t *testing.T) {
 	got, err := DSN(Connection{Driver: "mysql", Host: "localhost", Database: "app", User: "app", Password: "secret"})
 	if err != nil {

@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newHistoryCommand creates the command that prints locally persisted query
+// history.
 func newHistoryCommand() *cobra.Command {
 	var format string
 	var limit int

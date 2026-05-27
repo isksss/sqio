@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// metadataOptions contains shared flags for schema and metadata commands.
 type metadataOptions struct {
 	connectionOptions
 	format    string
@@ -22,6 +23,7 @@ type metadataOptions struct {
 	clipboard bool
 }
 
+// newTablesCommand creates the command that lists tables.
 func newTablesCommand() *cobra.Command {
 	var opts metadataOptions
 	cmd := &cobra.Command{
@@ -63,6 +65,7 @@ func newTablesCommand() *cobra.Command {
 	return cmd
 }
 
+// newColumnsCommand creates the command that lists columns for one table.
 func newColumnsCommand() *cobra.Command {
 	var opts metadataOptions
 	cmd := &cobra.Command{
@@ -125,6 +128,7 @@ func newColumnsCommand() *cobra.Command {
 	return cmd
 }
 
+// newDDLCommand creates the command that prints DDL for one table.
 func newDDLCommand() *cobra.Command {
 	var opts metadataOptions
 	cmd := &cobra.Command{
@@ -164,12 +168,14 @@ func newDDLCommand() *cobra.Command {
 	return cmd
 }
 
+// newSchemaCommand creates the schema command group.
 func newSchemaCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "schema", Short: "schema operations"}
 	cmd.AddCommand(newSchemaExportCommand())
 	return cmd
 }
 
+// newSchemaExportCommand creates the schema export subcommand.
 func newSchemaExportCommand() *cobra.Command {
 	var opts metadataOptions
 	cmd := &cobra.Command{
@@ -212,6 +218,7 @@ func newSchemaExportCommand() *cobra.Command {
 	return cmd
 }
 
+// newERCommand creates the Mermaid ER diagram export command.
 func newERCommand() *cobra.Command {
 	var opts metadataOptions
 	cmd := &cobra.Command{
@@ -258,6 +265,8 @@ func newERCommand() *cobra.Command {
 	return cmd
 }
 
+// metadataService prepares the metadata backend and cleanup function for schema
+// commands.
 func metadataService(ctx context.Context, cfg config.Config, opts connectionOptions) (service.MetadataService, func(), error) {
 	driver, dsn, cleanup, err := prepareConnection(ctx, cfg, opts)
 	if err != nil {
@@ -272,6 +281,8 @@ func metadataService(ctx context.Context, cfg config.Config, opts connectionOpti
 	return service.NewConnectedMetadataService(driver, dsn), cleanup, nil
 }
 
+// outputTarget returns either the command writer or a newly created output file
+// with a close function.
 func outputTarget(defaultWriter interface {
 	Write([]byte) (int, error)
 }, path string) (interface {

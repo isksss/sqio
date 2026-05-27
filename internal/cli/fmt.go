@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// fmtOptions contains flags for SQL formatting.
 type fmtOptions struct {
 	sql            string
 	file           string
@@ -21,6 +22,7 @@ type fmtOptions struct {
 	lineWidth      int
 }
 
+// newFmtCommand creates the SQL formatter command.
 func newFmtCommand() *cobra.Command {
 	var opts fmtOptions
 	cmd := &cobra.Command{

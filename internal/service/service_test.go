@@ -8,6 +8,7 @@ import (
 	"github.com/isksss/sqio/internal/db"
 )
 
+// TestExecSelectOne verifies the behavior covered by this test helper or case.
 func TestExecSelectOne(t *testing.T) {
 	result, err := Executor{}.Exec(context.Background(), "select 1", ExecOptions{})
 	if err != nil {
@@ -18,6 +19,7 @@ func TestExecSelectOne(t *testing.T) {
 	}
 }
 
+// TestMetadataTables verifies the behavior covered by this test helper or case.
 func TestMetadataTables(t *testing.T) {
 	tables, err := NewMetadataService().Tables(context.Background())
 	if err != nil {
@@ -28,6 +30,7 @@ func TestMetadataTables(t *testing.T) {
 	}
 }
 
+// TestMetadataMermaidER verifies the behavior covered by this test helper or case.
 func TestMetadataMermaidER(t *testing.T) {
 	diagram, err := NewMetadataService().MermaidER(context.Background())
 	if err != nil {
@@ -38,6 +41,7 @@ func TestMetadataMermaidER(t *testing.T) {
 	}
 }
 
+// TestFromDBSchemaPreservesColumnMetadata verifies the behavior covered by this test helper or case.
 func TestFromDBSchemaPreservesColumnMetadata(t *testing.T) {
 	schema := fromDBSchema(db.SchemaInfo{Tables: []db.TableInfo{{
 		Name: "users",

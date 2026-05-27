@@ -2,6 +2,7 @@ package formatter
 
 import "testing"
 
+// TestFormatKeywordCase verifies the behavior covered by this test helper or case.
 func TestFormatKeywordCase(t *testing.T) {
 	got := Format("select id from users", Options{KeywordCase: "upper"})
 	want := "SELECT id\n  FROM users\n"
@@ -10,6 +11,7 @@ func TestFormatKeywordCase(t *testing.T) {
 	}
 }
 
+// TestFormatIdempotent verifies the behavior covered by this test helper or case.
 func TestFormatIdempotent(t *testing.T) {
 	once := Format("select id from users where id = 1", Options{KeywordCase: "upper", Indent: 2})
 	twice := Format(once, Options{KeywordCase: "upper", Indent: 2})

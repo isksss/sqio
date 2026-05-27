@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestWriteJSON verifies the behavior covered by this test helper or case.
 func TestWriteJSON(t *testing.T) {
 	var buf bytes.Buffer
 	err := Write(&buf, "json", Result{Columns: []string{"id"}, Rows: [][]interface{}{{1}}, RowCount: 1})
@@ -17,6 +18,7 @@ func TestWriteJSON(t *testing.T) {
 	}
 }
 
+// TestWriteMarkdown verifies the behavior covered by this test helper or case.
 func TestWriteMarkdown(t *testing.T) {
 	var buf bytes.Buffer
 	err := Write(&buf, "markdown", Result{Columns: []string{"id"}, Rows: [][]interface{}{{1}}, RowCount: 1})
@@ -28,6 +30,7 @@ func TestWriteMarkdown(t *testing.T) {
 	}
 }
 
+// TestWriteMarkdownEscapesCells verifies the behavior covered by this test helper or case.
 func TestWriteMarkdownEscapesCells(t *testing.T) {
 	var buf bytes.Buffer
 	err := Write(&buf, "markdown", Result{Columns: []string{"note"}, Rows: [][]interface{}{{"a|b\nc"}}, RowCount: 1})
@@ -39,6 +42,7 @@ func TestWriteMarkdownEscapesCells(t *testing.T) {
 	}
 }
 
+// TestWriteYAML verifies the behavior covered by this test helper or case.
 func TestWriteYAML(t *testing.T) {
 	var buf bytes.Buffer
 	err := Write(&buf, "yaml", Result{Columns: []string{"id"}, Rows: [][]interface{}{{1}}, RowCount: 1})
@@ -50,6 +54,7 @@ func TestWriteYAML(t *testing.T) {
 	}
 }
 
+// TestWriteCSVUsesEmptyStringForNull verifies the behavior covered by this test helper or case.
 func TestWriteCSVUsesEmptyStringForNull(t *testing.T) {
 	var buf bytes.Buffer
 	err := Write(&buf, "csv", Result{Columns: []string{"id", "name"}, Rows: [][]interface{}{{1, nil}}, RowCount: 1})
@@ -61,6 +66,7 @@ func TestWriteCSVUsesEmptyStringForNull(t *testing.T) {
 	}
 }
 
+// TestLimitWriter verifies the behavior covered by this test helper or case.
 func TestLimitWriter(t *testing.T) {
 	var buf bytes.Buffer
 	writer := &LimitWriter{Writer: &buf, Limit: 3}

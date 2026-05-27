@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// execOptions contains flags for commands that execute SQL.
 type execOptions struct {
 	connectionOptions
 	sql         string
@@ -27,6 +28,7 @@ type execOptions struct {
 	transaction bool
 }
 
+// newExecCommand creates the non-interactive SQL execution command.
 func newExecCommand() *cobra.Command {
 	var opts execOptions
 	cmd := &cobra.Command{
@@ -48,6 +50,8 @@ func newExecCommand() *cobra.Command {
 	return cmd
 }
 
+// runExec resolves SQL input, connection settings, execution options, output
+// targets, and history persistence for exec-like commands.
 func runExec(cmd *cobra.Command, opts execOptions, sqlOverride string) error {
 	cfg, err := loadConfig()
 	if err != nil {

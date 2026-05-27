@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLoadDefault verifies the behavior covered by this test helper or case.
 func TestLoadDefault(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
 	if err != nil {
@@ -16,6 +17,7 @@ func TestLoadDefault(t *testing.T) {
 	}
 }
 
+// TestLoadTOML verifies the behavior covered by this test helper or case.
 func TestLoadTOML(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	err := os.WriteFile(path, []byte("[query]\ntimeout = \"5s\"\nmax_rows = 10\nformat = \"json\"\n"), 0o644)
@@ -31,6 +33,7 @@ func TestLoadTOML(t *testing.T) {
 	}
 }
 
+// TestLoadConnectionEnvPassword verifies the behavior covered by this test helper or case.
 func TestLoadConnectionEnvPassword(t *testing.T) {
 	t.Setenv("SQIO_TEST_PASSWORD", "secret")
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -51,6 +54,7 @@ func TestLoadConnectionEnvPassword(t *testing.T) {
 	}
 }
 
+// TestLoadSSHTunnel verifies the behavior covered by this test helper or case.
 func TestLoadSSHTunnel(t *testing.T) {
 	t.Setenv("SQIO_SSH_PASSWORD", "ssh-secret")
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -83,6 +87,7 @@ password = "env:SQIO_SSH_PASSWORD"
 	}
 }
 
+// TestLoadGlobalAndNearestLocal verifies the behavior covered by this test helper or case.
 func TestLoadGlobalAndNearestLocal(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
@@ -152,6 +157,7 @@ database = "local.db"
 	}
 }
 
+// TestLoadLocalDoesNotApplyOutsideTree verifies the behavior covered by this test helper or case.
 func TestLoadLocalDoesNotApplyOutsideTree(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
@@ -183,6 +189,7 @@ func TestLoadLocalDoesNotApplyOutsideTree(t *testing.T) {
 	}
 }
 
+// TestLoadExplicitConfigSkipsAutoDiscovery verifies the behavior covered by this test helper or case.
 func TestLoadExplicitConfigSkipsAutoDiscovery(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))

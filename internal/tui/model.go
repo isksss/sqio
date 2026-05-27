@@ -1,3 +1,4 @@
+// Package tui implements the Bubble Tea terminal user interface.
 package tui
 
 import (
@@ -16,12 +17,14 @@ import (
 	"github.com/isksss/sqio/internal/service"
 )
 
+// ConnectionEntry is a compact connection label shown by the TUI.
 type ConnectionEntry struct {
 	Name   string
 	Driver string
 	DSN    string
 }
 
+// Model contains all TUI state needed by Bubble Tea update and render cycles.
 type Model struct {
 	cfg              config.Config
 	metadata         service.MetadataService
@@ -49,21 +52,30 @@ type Model struct {
 	connFocus        int
 }
 
+// metadataMsg delivers asynchronous table metadata loading results.
 type metadataMsg struct {
 	tables []service.Table
 	err    error
 }
+
+// execResultMsg delivers asynchronous SQL execution results.
 type execResultMsg struct {
 	result output.Result
 	err    error
 }
 
+// New returns a TUI model using the default in-memory metadata service.
 func New(cfg config.Config, noColor bool) Model {
 	return NewWithMetadata(cfg, service.NewMetadataService(), noColor)
 }
+
+// NewWithMetadata returns a TUI model with an injected metadata service.
 func NewWithMetadata(cfg config.Config, metadata service.MetadataService, noColor bool) Model {
 	return NewWithServices(cfg, metadata, service.Executor{}, service.ExecOptions{Format: cfg.Query.Format, MaxRows: cfg.Query.MaxRows}, noColor)
 }
+
+// NewWithServices returns a TUI model with injectable services for production
+// and tests.
 func NewWithServices(cfg config.Config, metadata service.MetadataService, executor service.Executor, execOpts service.ExecOptions, noColor bool) Model {
 	input := textinput.New()
 	input.Placeholder = "select 1"
@@ -75,8 +87,11 @@ func NewWithServices(cfg config.Config, metadata service.MetadataService, execut
 	}
 	return Model{cfg: cfg, metadata: metadata, executor: executor, execOpts: execOpts, input: input, status: "loading metadata", noColor: noColor, objects: []string{"loading"}, connections: connections}
 }
+
+// Init starts cursor blinking and initial metadata loading.
 func (m Model) Init() tea.Cmd { return tea.Batch(textinput.Blink, loadMetadata(m.metadata)) }
 
+// Update applies Bubble Tea messages to Model and returns any follow-up command.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -176,6 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// View renders the current TUI frame.
 func (m Model) View() string {
 	if m.width == 0 {
 		return "sqio\n"
@@ -196,6 +212,7 @@ func (m Model) View() string {
 	return v
 }
 
+// renderTree renders the selectable database object list.
 func (m Model) renderTree() string {
 	lines := make([]string, len(m.objects))
 	for i, o := range m.objects {
@@ -207,6 +224,9 @@ func (m Model) renderTree() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// renderDetail renders metadata and query result details for the selected
+// object.
 func (m Model) renderDetail() string {
 	if len(m.objects) == 0 {
 		return "no object"
@@ -237,8 +257,10 @@ func (m Model) renderDetail() string {
 	return body
 }
 
+// detailTabs defines the tab order in the detail panel.
 var detailTabs = []string{"columns", "ddl", "result"}
 
+// renderDetailTabs renders the compact detail tab selector.
 func (m Model) renderDetailTabs() string {
 	parts := make([]string, len(detailTabs))
 	for i, t := range detailTabs {
@@ -250,6 +272,8 @@ func (m Model) renderDetailTabs() string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// panel wraps content in a lipgloss border and highlights focused panels.
 func (m Model) panel(title, body string, width, height int, focused bool) string {
 	border := lipgloss.NormalBorder()
 	if focused {
@@ -262,6 +286,7 @@ func (m Model) panel(title, body string, width, height int, focused bool) string
 	return style.Render(title + "\n" + body)
 }
 
+// runSQL returns a command that executes SQL with a fixed TUI timeout.
 func runSQL(executor service.Executor, opts service.ExecOptions, sql string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -270,6 +295,8 @@ func runSQL(executor service.Executor, opts service.ExecOptions, sql string) tea
 		return execResultMsg{result: r, err: e}
 	}
 }
+
+// loadMetadata returns a command that loads table metadata asynchronously.
 func loadMetadata(metadata service.MetadataService) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -279,8 +306,10 @@ func loadMetadata(metadata service.MetadataService) tea.Cmd {
 	}
 }
 
+// resultWindowSize limits how many result rows are shown in one TUI page.
 const resultWindowSize = 20
 
+// renderResultWindow renders the current page of query results.
 func (m Model) renderResultWindow() string {
 	if len(m.columns) == 0 {
 		return fmt.Sprintf("OK (%d rows)", len(m.rows))
@@ -302,6 +331,8 @@ func (m Model) renderResultWindow() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// max returns the larger of a and b.
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -309,6 +340,7 @@ func max(a, b int) int {
 	return b
 }
 
+// startAddConnection switches the TUI into the inline connection form state.
 func (m *Model) startAddConnection() {
 	m.addingConnection = true
 	m.connFocus = 0
@@ -329,6 +361,9 @@ func (m *Model) startAddConnection() {
 	}
 	m.status = "新規DB接続を追加中: Tabで項目移動、Enterで確定"
 }
+
+// updateAddConnection handles keyboard input while the inline connection form
+// is active.
 func (m Model) updateAddConnection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -377,9 +412,12 @@ func (m Model) updateAddConnection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// renderHelp returns the compact keybinding help line.
 func (m Model) renderHelp() string {
 	return "help: q/ctrl+c=quit, tab=focus, j/k=move, [/] = detail tab, enter=run sql, PgUp/PgDn=result scroll, a=新規DB追加, ?=help"
 }
+
+// renderAddConnection renders the inline connection form.
 func (m Model) renderAddConnection() string {
 	lines := []string{"[DB追加] Tab/Shift+Tab:項目移動 Enter:確定 Esc:キャンセル"}
 	for i, in := range m.connInputs {
@@ -391,6 +429,9 @@ func (m Model) renderAddConnection() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// currentConnectionLabel returns the label shown in the detail panel for the
+// active connection source.
 func (m Model) currentConnectionLabel() string {
 	if m.activeConnection != "" {
 		return m.activeConnection

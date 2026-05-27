@@ -12,6 +12,7 @@ import (
 	"filippo.io/age/armor"
 )
 
+// TestMain verifies the behavior covered by this test helper or case.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "sqio-cli-test-*")
 	if err != nil {
@@ -24,6 +25,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// executeForTest verifies the behavior covered by this test helper or case.
 func executeForTest(args ...string) (string, error) {
 	cmd := newRootCommand()
 	out := bytes.Buffer{}
@@ -34,6 +36,7 @@ func executeForTest(args ...string) (string, error) {
 	return out.String(), err
 }
 
+// TestExecSelectOneJSON verifies the behavior covered by this test helper or case.
 func TestExecSelectOneJSON(t *testing.T) {
 	out, err := executeForTest("exec", "--sql", "select 1", "--format", "json")
 	if err != nil {
@@ -44,6 +47,7 @@ func TestExecSelectOneJSON(t *testing.T) {
 	}
 }
 
+// TestFmtSQL verifies the behavior covered by this test helper or case.
 func TestFmtSQL(t *testing.T) {
 	out, err := executeForTest("fmt", "--sql", "select id from users")
 	if err != nil {
@@ -54,6 +58,7 @@ func TestFmtSQL(t *testing.T) {
 	}
 }
 
+// TestQuerySQL verifies the behavior covered by this test helper or case.
 func TestQuerySQL(t *testing.T) {
 	out, err := executeForTest("query", "--sql", "select 1", "--format", "json")
 	if err != nil {
@@ -64,6 +69,7 @@ func TestQuerySQL(t *testing.T) {
 	}
 }
 
+// TestQueryPick verifies the behavior covered by this test helper or case.
 func TestQueryPick(t *testing.T) {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, "query.sql"), []byte("select 1"), 0o644)
@@ -87,6 +93,7 @@ func TestQueryPick(t *testing.T) {
 	}
 }
 
+// TestHistoryCommand verifies the behavior covered by this test helper or case.
 func TestHistoryCommand(t *testing.T) {
 	_, err := executeForTest("exec", "--sql", "select 1", "--format", "json")
 	if err != nil {
@@ -101,6 +108,7 @@ func TestHistoryCommand(t *testing.T) {
 	}
 }
 
+// TestLintIssue verifies the behavior covered by this test helper or case.
 func TestLintIssue(t *testing.T) {
 	out, err := executeForTest("lint", "--sql", "select * from users")
 	if err == nil {
@@ -114,6 +122,7 @@ func TestLintIssue(t *testing.T) {
 	}
 }
 
+// TestTables verifies the behavior covered by this test helper or case.
 func TestTables(t *testing.T) {
 	out, err := executeForTest("tables")
 	if err != nil {
@@ -124,6 +133,7 @@ func TestTables(t *testing.T) {
 	}
 }
 
+// TestColumnsJSON verifies the behavior covered by this test helper or case.
 func TestColumnsJSON(t *testing.T) {
 	out, err := executeForTest("columns", "--table", "users", "--format", "json")
 	if err != nil {
@@ -134,6 +144,7 @@ func TestColumnsJSON(t *testing.T) {
 	}
 }
 
+// TestDDL verifies the behavior covered by this test helper or case.
 func TestDDL(t *testing.T) {
 	out, err := executeForTest("ddl", "--table", "users")
 	if err != nil {
@@ -144,6 +155,7 @@ func TestDDL(t *testing.T) {
 	}
 }
 
+// TestSchemaExport verifies the behavior covered by this test helper or case.
 func TestSchemaExport(t *testing.T) {
 	out, err := executeForTest("schema", "export", "--format", "json")
 	if err != nil {
@@ -154,6 +166,7 @@ func TestSchemaExport(t *testing.T) {
 	}
 }
 
+// TestER verifies the behavior covered by this test helper or case.
 func TestER(t *testing.T) {
 	out, err := executeForTest("er", "--format", "mermaid")
 	if err != nil {
@@ -164,6 +177,7 @@ func TestER(t *testing.T) {
 	}
 }
 
+// TestInitCommandCreatesLocalConfig verifies the behavior covered by this test helper or case.
 func TestInitCommandCreatesLocalConfig(t *testing.T) {
 	dir := t.TempDir()
 	current, err := os.Getwd()
@@ -190,6 +204,7 @@ func TestInitCommandCreatesLocalConfig(t *testing.T) {
 	}
 }
 
+// TestInitCommandCreatesGlobalConfig verifies the behavior covered by this test helper or case.
 func TestInitCommandCreatesGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
@@ -210,6 +225,7 @@ func TestInitCommandCreatesGlobalConfig(t *testing.T) {
 	}
 }
 
+// TestInitCommandRejectsExistingConfig verifies the behavior covered by this test helper or case.
 func TestInitCommandRejectsExistingConfig(t *testing.T) {
 	dir := t.TempDir()
 	current, err := os.Getwd()
@@ -239,6 +255,7 @@ func TestInitCommandRejectsExistingConfig(t *testing.T) {
 	}
 }
 
+// TestExecWithConfigConnection verifies the behavior covered by this test helper or case.
 func TestExecWithConfigConnection(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -260,6 +277,7 @@ database = "`+dbPath+`"
 	}
 }
 
+// TestMetadataWithConfigConnection verifies the behavior covered by this test helper or case.
 func TestMetadataWithConfigConnection(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -292,6 +310,7 @@ database = "`+dbPath+`"
 	}
 }
 
+// TestReadonlyRejectsDangerousQuery verifies the behavior covered by this test helper or case.
 func TestReadonlyRejectsDangerousQuery(t *testing.T) {
 	_, err := executeForTest("exec", "--readonly", "--sql", "delete from users")
 	if err == nil {
@@ -302,6 +321,7 @@ func TestReadonlyRejectsDangerousQuery(t *testing.T) {
 	}
 }
 
+// TestReadonlyRejectsMutatingQuery verifies the behavior covered by this test helper or case.
 func TestReadonlyRejectsMutatingQuery(t *testing.T) {
 	_, err := executeForTest("exec", "--readonly", "--sql", "insert into users (name) values ('a')")
 	if err == nil {
@@ -312,6 +332,7 @@ func TestReadonlyRejectsMutatingQuery(t *testing.T) {
 	}
 }
 
+// TestResolveAgeEncryptedPassword verifies the behavior covered by this test helper or case.
 func TestResolveAgeEncryptedPassword(t *testing.T) {
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -357,6 +378,7 @@ password_encrypted = true
 	}
 }
 
+// TestPlainPasswordWithAgeIdentityIsNotDecrypted verifies the behavior covered by this test helper or case.
 func TestPlainPasswordWithAgeIdentityIsNotDecrypted(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
@@ -383,6 +405,7 @@ password_encrypted = false
 	}
 }
 
+// TestEncryptedPasswordRequiresAgeIdentity verifies the behavior covered by this test helper or case.
 func TestEncryptedPasswordRequiresAgeIdentity(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
@@ -405,6 +428,7 @@ password_encrypted = true
 	}
 }
 
+// TestSSHTunnelRejectsDSN verifies the behavior covered by this test helper or case.
 func TestSSHTunnelRejectsDSN(t *testing.T) {
 	_, err := executeForTest(
 		"exec",

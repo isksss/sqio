@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newTUICommand creates the command that launches the Bubble Tea interface.
 func newTUICommand() *cobra.Command {
 	var opts connectionOptions
 	cmd := &cobra.Command{

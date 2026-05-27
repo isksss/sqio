@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestExecuteMaxRows verifies the behavior covered by this test helper or case.
 func TestExecuteMaxRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	_, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `
@@ -24,6 +25,7 @@ insert into users (id) values (1), (2), (3);
 	}
 }
 
+// TestExecuteExplainSQLite verifies the behavior covered by this test helper or case.
 func TestExecuteExplainSQLite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	_, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `create table users (id integer primary key);`, ExecuteOptions{})
@@ -39,6 +41,7 @@ func TestExecuteExplainSQLite(t *testing.T) {
 	}
 }
 
+// TestExecuteTransaction verifies the behavior covered by this test helper or case.
 func TestExecuteTransaction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	result, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `
