@@ -1,3 +1,4 @@
+// Package tunnel manages SSH local port forwarding for database connections.
 package tunnel
 
 import (
@@ -12,6 +13,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Config describes the SSH endpoint, authentication material, and remote
+// database endpoint used to create a local tunnel.
 type Config struct {
 	Enabled    bool
 	Host       string
@@ -23,6 +26,7 @@ type Config struct {
 	RemotePort int
 }
 
+// Tunnel represents an active local TCP listener backed by an SSH client.
 type Tunnel struct {
 	listener  net.Listener
 	client    *ssh.Client
@@ -30,6 +34,8 @@ type Tunnel struct {
 	localPort int
 }
 
+// Start opens an SSH tunnel when cfg.Enabled is true. Disabled tunnels return
+// nil without error so callers can handle optional tunneling uniformly.
 func Start(ctx context.Context, cfg Config) (*Tunnel, error) {
 	if !cfg.Enabled {
 		return nil, nil
@@ -69,14 +75,17 @@ func Start(ctx context.Context, cfg Config) (*Tunnel, error) {
 	return t, nil
 }
 
+// LocalHost returns the local address database clients should connect to.
 func (t *Tunnel) LocalHost() string {
 	return t.localHost
 }
 
+// LocalPort returns the ephemeral local port assigned to the tunnel.
 func (t *Tunnel) LocalPort() int {
 	return t.localPort
 }
 
+// Close stops accepting local connections and closes the SSH client.
 func (t *Tunnel) Close() error {
 	if t == nil {
 		return nil
@@ -88,6 +97,8 @@ func (t *Tunnel) Close() error {
 	return err
 }
 
+// accept forwards each accepted local connection until the context is canceled
+// or the listener is closed.
 func (t *Tunnel) accept(ctx context.Context, cfg Config) {
 	go func() {
 		<-ctx.Done()
@@ -102,6 +113,7 @@ func (t *Tunnel) accept(ctx context.Context, cfg Config) {
 	}
 }
 
+// forward connects one local client to the configured remote host through SSH.
 func (t *Tunnel) forward(local net.Conn, cfg Config) {
 	defer local.Close()
 	remote, err := t.client.Dial("tcp", net.JoinHostPort(cfg.RemoteHost, strconv.Itoa(cfg.RemotePort)))
@@ -115,11 +127,15 @@ func (t *Tunnel) forward(local net.Conn, cfg Config) {
 	<-done
 }
 
+// copyAndSignal copies one half of a bidirectional stream and signals when that
+// direction ends.
 func copyAndSignal(done chan<- struct{}, dst io.Writer, src io.Reader) {
 	_, _ = io.Copy(dst, src)
 	done <- struct{}{}
 }
 
+// authMethods builds SSH authentication methods from password and private key
+// settings.
 func authMethods(cfg Config) ([]ssh.AuthMethod, error) {
 	auth := []ssh.AuthMethod{}
 	if cfg.Password != "" {

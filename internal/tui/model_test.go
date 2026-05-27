@@ -10,6 +10,7 @@ import (
 	"github.com/isksss/sqio/internal/service"
 )
 
+// TestNavigation verifies the behavior covered by this test helper or case.
 func TestNavigation(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(metadataMsg{tables: []service.Table{{Name: "users"}, {Name: "posts"}}})
@@ -26,6 +27,7 @@ func TestNavigation(t *testing.T) {
 	}
 }
 
+// TestFocusCycle verifies the behavior covered by this test helper or case.
 func TestFocusCycle(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -35,6 +37,7 @@ func TestFocusCycle(t *testing.T) {
 	}
 }
 
+// TestExecResultMessage verifies the behavior covered by this test helper or case.
 func TestExecResultMessage(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(execResultMsg{
@@ -53,6 +56,7 @@ func TestExecResultMessage(t *testing.T) {
 	}
 }
 
+// TestResultPagination verifies the behavior covered by this test helper or case.
 func TestResultPagination(t *testing.T) {
 	model := New(config.Default(), true)
 	rows := make([][]interface{}, 25)
@@ -77,6 +81,7 @@ func TestResultPagination(t *testing.T) {
 	}
 }
 
+// TestMetadataMessage verifies the behavior covered by this test helper or case.
 func TestMetadataMessage(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(metadataMsg{tables: []service.Table{{
@@ -99,6 +104,7 @@ func TestMetadataMessage(t *testing.T) {
 	}
 }
 
+// TestDetailTabs verifies the behavior covered by this test helper or case.
 func TestDetailTabs(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(metadataMsg{tables: []service.Table{{
@@ -121,6 +127,7 @@ func TestDetailTabs(t *testing.T) {
 	}
 }
 
+// TestToggleHelp verifies the behavior covered by this test helper or case.
 func TestToggleHelp(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
@@ -130,6 +137,7 @@ func TestToggleHelp(t *testing.T) {
 	}
 }
 
+// TestAddConnectionFlow verifies the behavior covered by this test helper or case.
 func TestAddConnectionFlow(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
@@ -155,6 +163,8 @@ func TestAddConnectionFlow(t *testing.T) {
 		t.Fatalf("unexpected active connection: %s", model.activeConnection)
 	}
 }
+
+// TestViewIncludesPanels verifies the behavior covered by this test helper or case.
 func TestViewIncludesPanels(t *testing.T) {
 	model := New(config.Default(), true)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})

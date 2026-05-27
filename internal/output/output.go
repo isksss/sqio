@@ -1,3 +1,4 @@
+// Package output serializes query results into CLI-friendly formats.
 package output
 
 import (
@@ -10,6 +11,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Result is the database execution payload shared by output encoders.
+// Columns is empty for statements that do not return rows, while RowCount and
+// ElapsedMS still describe the completed operation.
 type Result struct {
 	Columns   []string        `json:"columns"`
 	Rows      [][]interface{} `json:"rows"`
@@ -17,12 +21,17 @@ type Result struct {
 	ElapsedMS int64           `json:"elapsed_ms"`
 }
 
+// LimitWriter wraps another writer and fails once the configured byte limit is
+// exceeded. A non-positive Limit disables the guard and passes writes through.
 type LimitWriter struct {
 	Writer io.Writer
 	Limit  int
 	wrote  int
 }
 
+// Write writes p to the underlying writer while accounting for the configured
+// byte budget. If p would exceed the limit, it writes the remaining bytes and
+// returns an error so callers can stop producing output.
 func (w *LimitWriter) Write(p []byte) (int, error) {
 	if w.Limit <= 0 {
 		return w.Writer.Write(p)
@@ -44,6 +53,8 @@ func (w *LimitWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// Write renders result to w using the requested format. The empty format is
+// treated as "table" so CLI callers get a readable default without extra flags.
 func Write(w io.Writer, format string, result Result) error {
 	switch strings.ToLower(format) {
 	case "", "table":
@@ -93,6 +104,8 @@ func Write(w io.Writer, format string, result Result) error {
 	}
 }
 
+// writeMarkdown renders rows as a GitHub-flavored Markdown table and renders
+// non-row results as a compact execution summary.
 func writeMarkdown(w io.Writer, result Result) error {
 	if len(result.Columns) == 0 {
 		_, err := fmt.Fprintf(w, "OK (%d rows, %d ms)\n", result.RowCount, result.ElapsedMS)
@@ -120,6 +133,8 @@ func writeMarkdown(w io.Writer, result Result) error {
 	return nil
 }
 
+// writeTable renders rows as tab-separated text for terminals and simple pipes.
+// Non-row statements use the same execution summary as the Markdown encoder.
 func writeTable(w io.Writer, result Result) error {
 	if len(result.Columns) == 0 {
 		_, err := fmt.Fprintf(w, "OK (%d rows, %d ms)\n", result.RowCount, result.ElapsedMS)

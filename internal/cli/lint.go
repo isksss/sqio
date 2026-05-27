@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// lintOptions contains flags for SQL linting.
 type lintOptions struct {
 	sql     string
 	file    string
@@ -20,6 +21,7 @@ type lintOptions struct {
 	disable []string
 }
 
+// newLintCommand creates the SQL linter command.
 func newLintCommand() *cobra.Command {
 	var opts lintOptions
 	cmd := &cobra.Command{

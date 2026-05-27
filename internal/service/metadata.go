@@ -8,21 +8,26 @@ import (
 	"github.com/isksss/sqio/internal/db"
 )
 
+// MetadataService serves schema metadata from either a live database or an
+// in-memory fallback schema.
 type MetadataService struct {
 	schema Schema
 	db     db.Config
 }
 
+// Schema is the service-layer representation of database metadata.
 type Schema struct {
 	Tables []Table `json:"tables"`
 }
 
+// Table describes one table or view exposed to CLI and TUI callers.
 type Table struct {
 	Name    string   `json:"name"`
 	Columns []Column `json:"columns"`
 	DDL     string   `json:"ddl"`
 }
 
+// Column describes one table column and common relational constraints.
 type Column struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
@@ -33,6 +38,8 @@ type Column struct {
 	References string `json:"references,omitempty"`
 }
 
+// NewMetadataService returns an in-memory metadata service used when no live
+// database connection is configured.
 func NewMetadataService() MetadataService {
 	return MetadataService{
 		schema: Schema{
@@ -60,10 +67,13 @@ func NewMetadataService() MetadataService {
 	}
 }
 
+// NewConnectedMetadataService returns a metadata service backed by a live
+// database connection.
 func NewConnectedMetadataService(driver, dsn string) MetadataService {
 	return MetadataService{db: db.Config{Driver: driver, DSN: dsn}}
 }
 
+// Tables returns all known tables for the configured metadata source.
 func (s MetadataService) Tables(ctx context.Context) ([]Table, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -78,6 +88,7 @@ func (s MetadataService) Tables(ctx context.Context) ([]Table, error) {
 	return s.schema.Tables, nil
 }
 
+// Columns returns metadata for columns in tableName.
 func (s MetadataService) Columns(ctx context.Context, tableName string) ([]Column, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -96,6 +107,7 @@ func (s MetadataService) Columns(ctx context.Context, tableName string) ([]Colum
 	return table.Columns, nil
 }
 
+// DDL returns a CREATE TABLE statement for tableName when metadata is available.
 func (s MetadataService) DDL(ctx context.Context, tableName string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -118,6 +130,7 @@ func (s MetadataService) DDL(ctx context.Context, tableName string) (string, err
 	return table.DDL, nil
 }
 
+// findColumns returns columns for tableName from schema.
 func findColumns(schema Schema, tableName string) ([]Column, error) {
 	table, ok := findTable(schema, tableName)
 	if !ok {
@@ -126,6 +139,7 @@ func findColumns(schema Schema, tableName string) ([]Column, error) {
 	return table.Columns, nil
 }
 
+// findTable searches schema for tableName.
 func findTable(schema Schema, tableName string) (Table, bool) {
 	for _, table := range schema.Tables {
 		if table.Name == tableName {
@@ -135,6 +149,7 @@ func findTable(schema Schema, tableName string) (Table, bool) {
 	return Table{}, false
 }
 
+// Schema returns the complete schema for the configured metadata source.
 func (s MetadataService) Schema(ctx context.Context) (Schema, error) {
 	if err := ctx.Err(); err != nil {
 		return Schema{}, err
@@ -149,6 +164,7 @@ func (s MetadataService) Schema(ctx context.Context) (Schema, error) {
 	return s.schema, nil
 }
 
+// MermaidER renders the schema as a Mermaid ER diagram.
 func (s MetadataService) MermaidER(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -173,6 +189,7 @@ func (s MetadataService) MermaidER(ctx context.Context) (string, error) {
 	return b.String(), nil
 }
 
+// findTable searches the in-memory fallback schema for tableName.
 func (s MetadataService) findTable(tableName string) (Table, bool) {
 	for _, table := range s.schema.Tables {
 		if table.Name == tableName {
@@ -182,6 +199,7 @@ func (s MetadataService) findTable(tableName string) (Table, bool) {
 	return Table{}, false
 }
 
+// fromDBSchema converts database-layer metadata into service-layer metadata.
 func fromDBSchema(schema db.SchemaInfo) Schema {
 	tables := make([]Table, 0, len(schema.Tables))
 	for _, table := range schema.Tables {

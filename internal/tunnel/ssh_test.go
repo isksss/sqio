@@ -2,6 +2,7 @@ package tunnel
 
 import "testing"
 
+// TestStartDisabled verifies the behavior covered by this test helper or case.
 func TestStartDisabled(t *testing.T) {
 	tunnel, err := Start(t.Context(), Config{})
 	if err != nil {
@@ -12,6 +13,7 @@ func TestStartDisabled(t *testing.T) {
 	}
 }
 
+// TestStartRequiresFields verifies the behavior covered by this test helper or case.
 func TestStartRequiresFields(t *testing.T) {
 	_, err := Start(t.Context(), Config{Enabled: true})
 	if err == nil {

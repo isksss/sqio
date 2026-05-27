@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestExecuteSQLite verifies the behavior covered by this test helper or case.
 func TestExecuteSQLite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	_, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `
@@ -29,6 +30,7 @@ select id, name from users;
 	}
 }
 
+// TestExecuteReturnsExecError verifies the behavior covered by this test helper or case.
 func TestExecuteReturnsExecError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	_, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `insert into missing_table values (1);`, ExecuteOptions{})
@@ -40,6 +42,7 @@ func TestExecuteReturnsExecError(t *testing.T) {
 	}
 }
 
+// TestMetadataSQLite verifies the behavior covered by this test helper or case.
 func TestMetadataSQLite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	_, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `
@@ -102,6 +105,7 @@ create table users (id integer primary key, name text not null default 'anonymou
 	}
 }
 
+// TestDDLBuildersPreserveDialectTypes verifies the behavior covered by this test helper or case.
 func TestDDLBuildersPreserveDialectTypes(t *testing.T) {
 	table := TableInfo{
 		Name: "events",

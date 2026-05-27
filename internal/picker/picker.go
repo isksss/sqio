@@ -1,3 +1,5 @@
+// Package picker discovers SQL files and selects one interactively when
+// possible.
 package picker
 
 import (
@@ -10,6 +12,8 @@ import (
 	"strings"
 )
 
+// SQLFiles returns all .sql files under root, skipping hidden directories and
+// sorting the result for deterministic fallback selection.
 func SQLFiles(root string) ([]string, error) {
 	files := []string{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -31,6 +35,9 @@ func SQLFiles(root string) ([]string, error) {
 	return files, err
 }
 
+// Pick returns a selected option using fzf when available. If fzf is missing or
+// no selection is made, the first sorted option is used as a deterministic
+// fallback.
 func Pick(options []string) (string, error) {
 	if len(options) == 0 {
 		return "", fmt.Errorf("no candidates")

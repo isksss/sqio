@@ -1,3 +1,5 @@
+// Package config loads sqio configuration from defaults, TOML files, and
+// environment variables.
 package config
 
 import (
@@ -11,6 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// Config is the top-level sqio configuration model.
 type Config struct {
 	Theme       string       `toml:"theme"`
 	Editor      string       `toml:"editor"`
@@ -20,12 +23,14 @@ type Config struct {
 	Connections []Connection `toml:"connections"`
 }
 
+// QueryConfig controls SQL execution defaults.
 type QueryConfig struct {
 	Timeout string `toml:"timeout"`
 	MaxRows int    `toml:"max_rows"`
 	Format  string `toml:"format"`
 }
 
+// FormatConfig controls SQL formatter defaults.
 type FormatConfig struct {
 	Dialect        string `toml:"dialect"`
 	KeywordCase    string `toml:"keyword_case"`
@@ -34,12 +39,14 @@ type FormatConfig struct {
 	LineWidth      int    `toml:"line_width"`
 }
 
+// LintConfig controls SQL lint rule filtering.
 type LintConfig struct {
 	Level   string   `toml:"level"`
 	Enable  []string `toml:"enable"`
 	Disable []string `toml:"disable"`
 }
 
+// Connection describes a named database connection from configuration.
 type Connection struct {
 	Name              string    `toml:"name"`
 	Driver            string    `toml:"driver"`
@@ -55,6 +62,7 @@ type Connection struct {
 	SSHTunnel         SSHTunnel `toml:"ssh_tunnel"`
 }
 
+// SSHTunnel describes optional SSH forwarding settings for a connection.
 type SSHTunnel struct {
 	Enabled    bool   `toml:"enabled"`
 	Host       string `toml:"host"`
@@ -64,6 +72,8 @@ type SSHTunnel struct {
 	PrivateKey string `toml:"private_key"`
 }
 
+// Default returns sqio's built-in configuration before file and environment
+// overrides are applied.
 func Default() Config {
 	return Config{
 		Theme:  "dark",
@@ -86,6 +96,9 @@ func Default() Config {
 	}
 }
 
+// Load reads configuration from path when provided, otherwise from the global
+// config and the nearest local sqio.toml, then applies supported environment
+// variable overrides.
 func Load(path string) (Config, error) {
 	cfg := Default()
 	if path != "" {
@@ -117,10 +130,12 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+// TimeoutDuration parses the query timeout string into a time.Duration.
 func TimeoutDuration(cfg Config) (time.Duration, error) {
 	return time.ParseDuration(cfg.Query.Timeout)
 }
 
+// DefaultPath returns the per-user global configuration path.
 func DefaultPath() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "sqio", "config.toml")
@@ -128,6 +143,8 @@ func DefaultPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "sqio", "config.toml")
 }
 
+// FindLocalPath walks from start toward the filesystem root looking for the
+// nearest sqio.toml. An empty start uses the current working directory.
 func FindLocalPath(start string) (string, error) {
 	if start == "" {
 		var err error
@@ -155,6 +172,7 @@ func FindLocalPath(start string) (string, error) {
 	}
 }
 
+// DefaultTOML returns the template written by the init command.
 func DefaultTOML() string {
 	return `theme = "dark"
 editor = "vi"
@@ -178,6 +196,7 @@ disable = []
 `
 }
 
+// mergeFile merges path into cfg when the file exists and ignores missing files.
 func mergeFile(cfg *Config, path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return mergeExistingFile(cfg, path)
@@ -187,6 +206,8 @@ func mergeFile(cfg *Config, path string) error {
 	return nil
 }
 
+// mergeExistingFile decodes a TOML file and applies only explicitly defined
+// fields over the current configuration.
 func mergeExistingFile(cfg *Config, path string) error {
 	var fileCfg Config
 	meta, err := toml.DecodeFile(path, &fileCfg)
@@ -197,6 +218,8 @@ func mergeExistingFile(cfg *Config, path string) error {
 	return nil
 }
 
+// mergeConfig overlays src onto dst using TOML metadata so zero values in an
+// omitted section do not erase defaults.
 func mergeConfig(dst *Config, src Config, meta toml.MetaData) {
 	if meta.IsDefined("theme") {
 		dst.Theme = src.Theme
@@ -242,6 +265,8 @@ func mergeConfig(dst *Config, src Config, meta toml.MetaData) {
 	}
 }
 
+// mergeConnections combines connection lists by name, replacing matching base
+// entries and appending new named or anonymous entries.
 func mergeConnections(base, overlay []Connection) []Connection {
 	merged := append([]Connection(nil), base...)
 	index := make(map[string]int, len(merged))
@@ -263,6 +288,7 @@ func mergeConnections(base, overlay []Connection) []Connection {
 	return merged
 }
 
+// applyEnv overlays supported SQIO_* environment variables onto cfg.
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("SQIO_THEME"); v != "" {
 		cfg.Theme = v
@@ -283,6 +309,8 @@ func applyEnv(cfg *Config) {
 	}
 }
 
+// expandConnectionEnv resolves env: references in connection passwords without
+// logging or exposing the resulting secret values.
 func expandConnectionEnv(cfg *Config) {
 	for i := range cfg.Connections {
 		if strings.HasPrefix(cfg.Connections[i].Password, "env:") {
@@ -294,6 +322,7 @@ func expandConnectionEnv(cfg *Config) {
 	}
 }
 
+// Connection returns the named configured connection.
 func (cfg Config) Connection(name string) (Connection, error) {
 	for _, conn := range cfg.Connections {
 		if conn.Name == name {

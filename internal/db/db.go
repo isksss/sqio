@@ -1,3 +1,5 @@
+// Package db opens database connections and executes SQL against supported
+// drivers.
 package db
 
 import (
@@ -14,17 +16,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Config contains the normalized driver name and DSN needed to open a database.
 type Config struct {
 	Driver string
 	DSN    string
 }
 
+// ExecuteOptions controls optional execution behavior for a SQL request.
 type ExecuteOptions struct {
 	MaxRows     int
 	Explain     bool
 	Transaction bool
 }
 
+// Open validates cfg, opens the matching database driver, and verifies the
+// connection with PingContext. The returned driver is the normalized driver name.
 func Open(ctx context.Context, cfg Config) (*sql.DB, string, error) {
 	driver, dsn, err := normalize(cfg)
 	if err != nil {
@@ -41,6 +47,9 @@ func Open(ctx context.Context, cfg Config) (*sql.DB, string, error) {
 	return conn, driver, nil
 }
 
+// Execute runs each parsed statement in sqlText and returns the result from the
+// last statement. Row-returning statements are scanned into output.Result, while
+// write statements report affected row count.
 func Execute(ctx context.Context, cfg Config, sqlText string, opts ExecuteOptions) (output.Result, error) {
 	started := time.Now()
 	conn, driver, err := Open(ctx, cfg)
@@ -96,6 +105,8 @@ func Execute(ctx context.Context, cfg Config, sqlText string, opts ExecuteOption
 	return result, nil
 }
 
+// returnsRows reports whether statement should be executed with QueryContext
+// instead of ExecContext based on its first SQL token.
 func returnsRows(statement string) bool {
 	fields := strings.Fields(strings.ToLower(strings.TrimSpace(statement)))
 	if len(fields) == 0 {
@@ -109,6 +120,8 @@ func returnsRows(statement string) bool {
 	}
 }
 
+// normalize maps user-facing driver aliases onto database/sql driver names and
+// validates that a DSN is present.
 func normalize(cfg Config) (string, string, error) {
 	driver := strings.ToLower(cfg.Driver)
 	switch driver {
@@ -132,6 +145,8 @@ func normalize(cfg Config) (string, string, error) {
 	}
 }
 
+// scanRows copies database rows into a driver-neutral output.Result, converting
+// byte slices to strings for readable CLI output.
 func scanRows(rows *sql.Rows, maxRows int) (output.Result, error) {
 	columns, err := rows.Columns()
 	if err != nil {
@@ -170,6 +185,7 @@ func scanRows(rows *sql.Rows, maxRows int) (output.Result, error) {
 	return result, nil
 }
 
+// explainSQL prefixes each statement with the driver's EXPLAIN syntax.
 func explainSQL(driver, sqlText string) string {
 	prefix := "EXPLAIN "
 	if driver == "sqlite" {
@@ -182,6 +198,7 @@ func explainSQL(driver, sqlText string) string {
 	return strings.Join(statements, ";")
 }
 
+// elapsed returns milliseconds since started.
 func elapsed(started time.Time) int64 {
 	return time.Since(started).Milliseconds()
 }

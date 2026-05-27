@@ -2,6 +2,7 @@ package editor
 
 import "testing"
 
+// TestSelectFallback verifies the behavior covered by this test helper or case.
 func TestSelectFallback(t *testing.T) {
 	t.Setenv("DBTUI_EDITOR", "")
 	t.Setenv("VISUAL", "")
@@ -11,6 +12,7 @@ func TestSelectFallback(t *testing.T) {
 	}
 }
 
+// TestSelectPriority verifies the behavior covered by this test helper or case.
 func TestSelectPriority(t *testing.T) {
 	t.Setenv("DBTUI_EDITOR", "nvim")
 	t.Setenv("VISUAL", "code")

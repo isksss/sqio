@@ -10,6 +10,7 @@ import (
 	"filippo.io/age/armor"
 )
 
+// TestDecryptAge verifies the behavior covered by this test helper or case.
 func TestDecryptAge(t *testing.T) {
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"net/url"
 )
 
+// Connection is the user-facing connection model used to construct DSNs.
 type Connection struct {
 	Driver   string
 	Host     string
@@ -16,6 +17,8 @@ type Connection struct {
 	DSN      string
 }
 
+// DSN returns an explicit DSN or builds one from structured connection fields
+// using driver-specific defaults.
 func DSN(conn Connection) (string, error) {
 	if conn.DSN != "" {
 		return conn.DSN, nil

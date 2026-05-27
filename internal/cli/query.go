@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newQueryCommand creates the editor-assisted SQL execution command.
 func newQueryCommand() *cobra.Command {
 	var opts execOptions
 	var pick bool

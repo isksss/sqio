@@ -9,10 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// initOptions contains flags for config file initialization.
 type initOptions struct {
 	global bool
 }
 
+// newInitCommand creates the config initialization command.
 func newInitCommand() *cobra.Command {
 	var opts initOptions
 	cmd := &cobra.Command{
@@ -40,6 +42,8 @@ func newInitCommand() *cobra.Command {
 	return cmd
 }
 
+// writeConfigFile creates path with the default TOML template and refuses to
+// overwrite an existing file.
 func writeConfigFile(path string) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {

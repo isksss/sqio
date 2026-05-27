@@ -1,3 +1,5 @@
+// Package service provides application-level operations shared by the CLI and
+// TUI frontends.
 package service
 
 import (
@@ -11,8 +13,11 @@ import (
 	"github.com/isksss/sqio/internal/query"
 )
 
+// Executor executes SQL through the configured database backend.
 type Executor struct{}
 
+// ExecOptions carries execution settings from the presentation layer into the
+// service and database layers.
 type ExecOptions struct {
 	Format      string
 	MaxRows     int
@@ -22,6 +27,8 @@ type ExecOptions struct {
 	Transaction bool
 }
 
+// Exec executes sql according to opts. Without a database connection it supports
+// a small built-in "select 1" response for smoke tests and demo flows.
 func (Executor) Exec(ctx context.Context, sql string, opts ExecOptions) (output.Result, error) {
 	started := time.Now()
 	statements := query.Statements(sql)
@@ -49,6 +56,7 @@ func (Executor) Exec(ctx context.Context, sql string, opts ExecOptions) (output.
 	return output.Result{}, fmt.Errorf("database connection is required for this SQL")
 }
 
+// elapsed returns milliseconds since started.
 func elapsed(started time.Time) int64 {
 	return time.Since(started).Milliseconds()
 }
