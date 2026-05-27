@@ -7,7 +7,7 @@ cd "$root"
 gofmt -w cmd internal
 go test ./...
 go build -o /tmp/sqio ./cmd/sqio
-markdownlint-cli2 README.md
+markdownlint-cli2 README.md docs/*.md
 
 docker compose up -d postgres mysql
 cleanup() {

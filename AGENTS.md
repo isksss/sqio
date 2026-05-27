@@ -3,9 +3,9 @@
 ## プロジェクト概要
 
 `sqio` は Go 製の TUI/CLI 統合データベースクライアントです。
-MySQL、PostgreSQL、SQLite を対象に、SQL 実行、対話的クエリ入力、
-ストリーミング出力、SQL format/lint、メタデータ取得、ER 図出力、
-履歴管理を提供します。
+MySQL、PostgreSQL、SQLite、SQL Server、Oracle、DuckDB、ClickHouse を対象に、
+SQL 実行、対話的クエリ入力、ストリーミング出力、SQL format/lint、
+メタデータ取得、ER 図出力、履歴管理を提供します。
 
 CLI が主要インターフェースで、TUI は同じ service 層を利用する
 フロントエンドとして扱います。
@@ -17,18 +17,12 @@ cmd/sqio/              CLI entrypoint
 internal/cli/          Cobra command definitions and CLI option handling
 internal/config/       Config loading and merge rules
 internal/db/           Database connections, DSN handling, metadata
-internal/editor/       External editor integration
 internal/formatter/    SQL formatter
-internal/history/      Query history storage
 internal/linter/       SQL lint rules
-internal/output/       Table/JSON/YAML output
-internal/picker/       fzf/internal picker
-internal/query/        Query input and safety helpers
-internal/secret/       age-based secret handling
 internal/service/      Shared application service layer
 internal/tui/          Bubble Tea TUI model
-internal/tunnel/       SSH tunnel support
 scripts/               CI and smoke test scripts
+docs/                  Japanese detailed documentation
 ```
 
 ## 開発方針
@@ -43,17 +37,31 @@ scripts/               CI and smoke test scripts
 - SSH tunnel は `known_hosts` による host key verification を前提にする。
 - TUI の password 入力は必ずマスク表示する。
 - DB 接続ありの `exec` / `query` は、可能な限り結果行を逐次出力し、
-  大きな結果セットを全件メモリ保持しない。`--transaction` 時は commit 前出力を避ける。
+  大きな結果セットを全件メモリ保持しない。
+- `--transaction` 時は commit 前出力を避ける。
 - MySQL DSN は `go-sql-driver/mysql` の `Config.FormatDSN()` など
   driver 公式の組み立て API を優先する。
 
-## よく使うコマンド
+## 検証
+
+通常の確認:
 
 ```bash
 go test ./...
-go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out
 go build -o /tmp/sqio ./cmd/sqio
-gofmt -w cmd internal
+markdownlint-cli2 README.md docs/*.md
+```
+
+coverage を確認する場合:
+
+```bash
+go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out
+go tool cover -func=/tmp/sqio-cover.out
+```
+
+CI と同等の軽量チェック:
+
+```bash
 bash scripts/ci-check.sh
 ```
 
@@ -71,16 +79,11 @@ docker compose down
 bash scripts/test-all.sh
 ```
 
-`scripts/test-all.sh` は `gofmt`、unit test、build、README の
-markdownlint、PostgreSQL/MySQL smoke test を実行します。
-
 ## 検証ルール
 
 - Go 変更時は最低限 `go test ./...` を実行する。
-- coverage を確認する場合は
-  `go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out` を使う。
 - CLI や build に関わる変更時は `go build -o /tmp/sqio ./cmd/sqio` も実行する。
-- README 変更時は `markdownlint-cli2 README.md README.en.md` または
+- README / docs 変更時は `markdownlint-cli2 README.md docs/*.md` または
   `bash scripts/ci-check.sh` で確認する。
 - PostgreSQL/MySQL 連携に触れた場合は `scripts/smoke-db.sh` を実行する。
 - 実行できない検証がある場合は、理由と未検証範囲を明記する。

@@ -12,4 +12,4 @@ fi
 
 go test ./...
 go build -o /tmp/sqio ./cmd/sqio
-markdownlint-cli2 README.md
+markdownlint-cli2 README.md docs/*.md
