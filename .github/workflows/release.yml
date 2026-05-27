@@ -11,28 +11,30 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - goos: darwin
             goarch: amd64
+            runner: macos-15-intel
             ext: ""
           - goos: darwin
             goarch: arm64
+            runner: macos-15
             ext: ""
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
             ext: ""
           - goos: linux
             goarch: arm64
+            runner: ubuntu-24.04-arm
             ext: ""
           - goos: windows
             goarch: amd64
-            ext: ".exe"
-          - goos: windows
-            goarch: arm64
+            runner: windows-latest
             ext: ".exe"
 
     steps:
@@ -49,7 +51,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+          CGO_ENABLED: "1"
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
