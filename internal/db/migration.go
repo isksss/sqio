@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/isksss/sqio/internal/dbdriver"
 )
 
 // Migration describes one SQL migration file.
@@ -284,7 +286,7 @@ dirty integer not null default 0
 )`); err != nil {
 		return err
 	}
-	if driver != "sqlite" && driver != "duckdb" {
+	if driver != dbdriver.DriverSQLite && driver != dbdriver.DriverDuckDB {
 		return nil
 	}
 	return ensureMigrationColumns(ctx, conn)

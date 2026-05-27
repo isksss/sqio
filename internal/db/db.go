@@ -16,6 +16,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/isksss/sqio/internal/dbdriver"
 	"github.com/isksss/sqio/internal/output"
 	"github.com/isksss/sqio/internal/query"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -431,7 +432,7 @@ func returnsRows(statement string) bool {
 
 func quoteIdent(driver, ident string) string {
 	quote := `"`
-	if driver == "mysql" {
+	if driver == dbdriver.DriverMySQL {
 		quote = "`"
 	}
 	parts := strings.Split(ident, ".")
@@ -449,11 +450,11 @@ func quoteIdent(driver, ident string) string {
 
 func placeholder(driver string, position int) string {
 	switch driver {
-	case "pgx":
+	case dbdriver.DriverPGX:
 		return fmt.Sprintf("$%d", position)
-	case "sqlserver":
+	case dbdriver.DriverSQLServer:
 		return fmt.Sprintf("@p%d", position)
-	case "oracle":
+	case dbdriver.DriverOracle:
 		return fmt.Sprintf(":%d", position)
 	default:
 		return "?"
@@ -463,46 +464,48 @@ func placeholder(driver string, position int) string {
 // normalize maps user-facing driver aliases onto database/sql driver names and
 // validates that a DSN is present.
 func normalize(cfg Config) (string, string, error) {
-	driver := strings.ToLower(cfg.Driver)
+	driver, ok := dbdriver.Normalize(cfg.Driver)
+	if !ok {
+		return "", "", fmt.Errorf("unsupported driver: %s", cfg.Driver)
+	}
 	switch driver {
-	case "sqlite", "sqlite3":
+	case dbdriver.DriverSQLite:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("sqlite requires dsn or database path")
 		}
-		return "sqlite", cfg.DSN, nil
-	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
+		return dbdriver.DriverSQLite, cfg.DSN, nil
+	case dbdriver.DriverPGX:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("postgres requires dsn")
 		}
-		return "pgx", cfg.DSN, nil
-	case "mysql", "mariadb", "tidb":
+		return dbdriver.DriverPGX, cfg.DSN, nil
+	case dbdriver.DriverMySQL:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("mysql requires dsn")
 		}
-		return "mysql", cfg.DSN, nil
-	case "sqlserver", "mssql":
+		return dbdriver.DriverMySQL, cfg.DSN, nil
+	case dbdriver.DriverSQLServer:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("sqlserver requires dsn")
 		}
-		return "sqlserver", cfg.DSN, nil
-	case "oracle":
+		return dbdriver.DriverSQLServer, cfg.DSN, nil
+	case dbdriver.DriverOracle:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("oracle requires dsn")
 		}
-		return "oracle", cfg.DSN, nil
-	case "clickhouse", "ch":
+		return dbdriver.DriverOracle, cfg.DSN, nil
+	case dbdriver.DriverClickHouse:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("clickhouse requires dsn")
 		}
-		return "clickhouse", cfg.DSN, nil
-	case "duckdb":
+		return dbdriver.DriverClickHouse, cfg.DSN, nil
+	case dbdriver.DriverDuckDB:
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("duckdb requires dsn or database path")
 		}
-		return "duckdb", cfg.DSN, nil
-	default:
-		return "", "", fmt.Errorf("unsupported driver: %s", cfg.Driver)
+		return dbdriver.DriverDuckDB, cfg.DSN, nil
 	}
+	return "", "", fmt.Errorf("unsupported driver: %s", cfg.Driver)
 }
 
 // scanRows copies database rows into a driver-neutral output.Result, converting
@@ -591,7 +594,7 @@ func streamRows(rows *sql.Rows, maxRows int, w io.Writer, format string, started
 func explainSQL(driver, sqlText string, analyze bool) string {
 	prefix := "EXPLAIN "
 	switch {
-	case driver == "sqlite":
+	case driver == dbdriver.DriverSQLite:
 		prefix = "EXPLAIN QUERY PLAN "
 	case analyze:
 		prefix = "EXPLAIN ANALYZE "

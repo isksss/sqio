@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isksss/sqio/internal/dbdriver"
 	"github.com/isksss/sqio/internal/secret"
 )
 
@@ -233,7 +234,6 @@ func Validate(cfg Config) []ValidationIssue {
 	seen := map[string]bool{}
 	for i, conn := range cfg.Connections {
 		path := fmt.Sprintf("connections[%d]", i)
-		driver := strings.ToLower(conn.Driver)
 		if conn.Name == "" {
 			issues = append(issues, ValidationIssue{Path: path + ".name", Message: "connection name is required"})
 		} else if seen[conn.Name] {
@@ -247,7 +247,7 @@ func Validate(cfg Config) []ValidationIssue {
 		} else if !supportedDriver(conn.Driver) {
 			issues = append(issues, ValidationIssue{Path: path + ".driver", Message: "unsupported driver: " + conn.Driver})
 		}
-		if (driver == "sqlite" || driver == "sqlite3") && conn.DSN == "" && conn.Database == "" {
+		if dbdriver.IsSQLite(conn.Driver) && conn.DSN == "" && conn.Database == "" {
 			issues = append(issues, ValidationIssue{Path: path + ".database", Message: "sqlite requires database or dsn"})
 		}
 		if conn.SSHTunnel.Enabled {
@@ -294,12 +294,7 @@ func supportedQueryFormat(format string) bool {
 }
 
 func supportedDriver(driver string) bool {
-	switch strings.ToLower(driver) {
-	case "sqlite", "sqlite3", "duckdb", "postgres", "postgresql", "pgx", "cockroach", "cockroachdb", "mysql", "mariadb", "tidb", "sqlserver", "mssql", "oracle", "clickhouse", "ch":
-		return true
-	default:
-		return false
-	}
+	return dbdriver.Supported(driver)
 }
 
 // DefaultPath returns the per-user global configuration path.

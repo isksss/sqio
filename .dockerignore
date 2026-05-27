@@ -1,0 +1,8 @@
+.git
+.agents
+.codex
+*.db
+*.duckdb
+/playwright-report
+/test-results
+/tmp
