@@ -70,6 +70,7 @@ type SSHTunnel struct {
 	User       string `toml:"user"`
 	Password   string `toml:"password"`
 	PrivateKey string `toml:"private_key"`
+	KnownHosts string `toml:"known_hosts"`
 }
 
 // Default returns sqio's built-in configuration before file and environment

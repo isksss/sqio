@@ -352,6 +352,10 @@ func (m *Model) startAddConnection() {
 		ti.Prompt = labels[i] + ": "
 		ti.Placeholder = defaults[i]
 		ti.SetValue(defaults[i])
+		if labels[i] == "password" {
+			ti.EchoMode = textinput.EchoPassword
+			ti.EchoCharacter = '*'
+		}
 		if i == 0 {
 			ti.Focus()
 		} else {

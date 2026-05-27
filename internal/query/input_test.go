@@ -1,6 +1,8 @@
 package query
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,6 +53,28 @@ func TestReadMultipleInputs(t *testing.T) {
 	}
 }
 
+// TestReadFileAndReader verifies file and explicit reader sources.
+func TestReadFileAndReader(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "query.sql")
+	if err := os.WriteFile(path, []byte("select 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(Source{File: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "select 1" {
+		t.Fatalf("unexpected file sql: %q", got)
+	}
+	got, err = Read(Source{In: strings.NewReader("select 2")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "select 2" {
+		t.Fatalf("unexpected reader sql: %q", got)
+	}
+}
+
 // TestDangerous verifies the behavior covered by this test helper or case.
 func TestDangerous(t *testing.T) {
 	danger, ok := Dangerous("delete from users")
@@ -59,6 +83,29 @@ func TestDangerous(t *testing.T) {
 	}
 	if danger.Type != "delete_without_where" {
 		t.Fatalf("unexpected danger: %s", danger.Type)
+	}
+}
+
+// TestDangerousPatterns verifies destructive pattern classification.
+func TestDangerousPatterns(t *testing.T) {
+	cases := map[string]string{
+		"truncate users":                 "truncate",
+		"drop database prod":             "drop_database",
+		"update users set x=1":           "update_without_where",
+		"delete from users":              "delete_without_where",
+		"delete from users where id = 1": "",
+	}
+	for sql, want := range cases {
+		danger, ok := Dangerous(sql)
+		if want == "" {
+			if ok {
+				t.Fatalf("expected safe query, got %+v", danger)
+			}
+			continue
+		}
+		if !ok || danger.Type != want {
+			t.Fatalf("expected %s for %q, got %+v ok=%v", want, sql, danger, ok)
+		}
 	}
 }
 
@@ -87,5 +134,14 @@ func TestMutating(t *testing.T) {
 func TestMutatingIgnoresKeywordInComment(t *testing.T) {
 	if Mutating("-- select only\ninsert into users (name) values ('a')") != true {
 		t.Fatal("expected mutating query")
+	}
+}
+
+// TestCommentlessTextPreservesLiteral verifies comment scrubbing can keep string
+// literals for lint checks that need literal contents.
+func TestCommentlessTextPreservesLiteral(t *testing.T) {
+	got := CommentlessText("select 'a*b' /* hidden */")
+	if !strings.Contains(got, "'a*b'") || strings.Contains(got, "hidden") {
+		t.Fatalf("unexpected commentless text: %q", got)
 	}
 }

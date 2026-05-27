@@ -21,6 +21,18 @@ type Result struct {
 	ElapsedMS int64           `json:"elapsed_ms" yaml:"elapsed_ms"`
 }
 
+// StreamWriter renders row results incrementally so callers do not need to keep
+// the full result set in memory before writing output.
+type StreamWriter struct {
+	w         io.Writer
+	format    string
+	columns   []string
+	rows      [][]interface{}
+	rowCount  int
+	elapsedMS func() int64
+	csv       *csv.Writer
+}
+
 // LimitWriter wraps another writer and fails once the configured byte limit is
 // exceeded. A non-positive Limit disables the guard and passes writes through.
 type LimitWriter struct {
@@ -51,6 +63,142 @@ func (w *LimitWriter) Write(p []byte) (int, error) {
 	n, err := w.Writer.Write(p)
 	w.wrote += n
 	return n, err
+}
+
+// NewStreamWriter starts an incremental result writer for row-returning queries.
+func NewStreamWriter(w io.Writer, format string, columns []string, elapsedMS func() int64) (*StreamWriter, error) {
+	sw := &StreamWriter{w: w, format: strings.ToLower(format), columns: columns, elapsedMS: elapsedMS}
+	switch sw.format {
+	case "", "table":
+		if _, err := fmt.Fprintln(w, strings.Join(columns, "\t")); err != nil {
+			return nil, err
+		}
+	case "json":
+		header, err := json.MarshalIndent(columns, "  ", "  ")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := fmt.Fprintf(w, "{\n  \"columns\": %s,\n  \"rows\": [", header); err != nil {
+			return nil, err
+		}
+	case "jsonl":
+	case "csv", "tsv":
+		sw.csv = csv.NewWriter(w)
+		if sw.format == "tsv" {
+			sw.csv.Comma = '\t'
+		}
+		if err := sw.csv.Write(columns); err != nil {
+			return nil, err
+		}
+	case "markdown":
+		if _, err := fmt.Fprintf(w, "| %s |\n", strings.Join(columns, " | ")); err != nil {
+			return nil, err
+		}
+		separators := make([]string, len(columns))
+		for i := range separators {
+			separators[i] = "---"
+		}
+		if _, err := fmt.Fprintf(w, "| %s |\n", strings.Join(separators, " | ")); err != nil {
+			return nil, err
+		}
+	case "yaml":
+		sw.rows = [][]interface{}{}
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", format)
+	}
+	return sw, nil
+}
+
+// WriteRow writes one result row.
+func (sw *StreamWriter) WriteRow(row []interface{}) error {
+	switch sw.format {
+	case "", "table":
+		values := make([]string, len(row))
+		for i, v := range row {
+			values[i] = cellString(v)
+		}
+		if _, err := fmt.Fprintln(sw.w, strings.Join(values, "\t")); err != nil {
+			return err
+		}
+	case "json":
+		if sw.rowCount > 0 {
+			if _, err := io.WriteString(sw.w, ","); err != nil {
+				return err
+			}
+		}
+		b, err := json.MarshalIndent(row, "    ", "  ")
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(sw.w, "\n    %s", b); err != nil {
+			return err
+		}
+	case "jsonl":
+		obj := map[string]interface{}{}
+		for i, col := range sw.columns {
+			if i < len(row) {
+				obj[col] = row[i]
+			}
+		}
+		if err := json.NewEncoder(sw.w).Encode(obj); err != nil {
+			return err
+		}
+	case "csv", "tsv":
+		record := make([]string, len(row))
+		for i, v := range row {
+			record[i] = cellString(v)
+		}
+		if err := sw.csv.Write(record); err != nil {
+			return err
+		}
+	case "markdown":
+		values := make([]string, len(row))
+		for i, v := range row {
+			values[i] = markdownCell(v)
+		}
+		if _, err := fmt.Fprintf(sw.w, "| %s |\n", strings.Join(values, " | ")); err != nil {
+			return err
+		}
+	case "yaml":
+		copied := append([]interface{}(nil), row...)
+		sw.rows = append(sw.rows, copied)
+	}
+	sw.rowCount++
+	return nil
+}
+
+// RowCount returns how many rows have been streamed so far.
+func (sw *StreamWriter) RowCount() int {
+	return sw.rowCount
+}
+
+// Close finalizes output and returns the result summary.
+func (sw *StreamWriter) Close() (Result, error) {
+	result := Result{Columns: sw.columns, RowCount: sw.rowCount, ElapsedMS: sw.elapsed()}
+	switch sw.format {
+	case "json":
+		if _, err := fmt.Fprintf(sw.w, "\n  ],\n  \"row_count\": %d,\n  \"elapsed_ms\": %d\n}\n", result.RowCount, result.ElapsedMS); err != nil {
+			return Result{}, err
+		}
+	case "csv", "tsv":
+		sw.csv.Flush()
+		if err := sw.csv.Error(); err != nil {
+			return Result{}, err
+		}
+	case "yaml":
+		result.Rows = sw.rows
+		if err := yaml.NewEncoder(sw.w).Encode(result); err != nil {
+			return Result{}, err
+		}
+	}
+	return result, nil
+}
+
+func (sw *StreamWriter) elapsed() int64 {
+	if sw.elapsedMS == nil {
+		return 0
+	}
+	return sw.elapsedMS()
 }
 
 // Write renders result to w using the requested format. The empty format is

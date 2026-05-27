@@ -94,16 +94,6 @@ func runExec(cmd *cobra.Command, opts execOptions, sqlOverride string) error {
 	if cleanup != nil {
 		defer cleanup()
 	}
-	result, err := service.Executor{}.Exec(ctx, sql, service.ExecOptions{
-		Format: opts.format, MaxRows: opts.maxRows, Driver: driver, DSN: dsn,
-		Explain: opts.explain, Transaction: opts.transaction,
-	})
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return &CommandError{Type: "timeout", Message: err.Error(), Code: ExitTimeout}
-		}
-		return &CommandError{Type: "internal", Message: err.Error(), Code: ExitInternal}
-	}
 	w := cmd.OutOrStdout()
 	var outFile *os.File
 	if opts.out != "" {
@@ -117,7 +107,14 @@ func runExec(cmd *cobra.Command, opts execOptions, sqlOverride string) error {
 	if opts.maxBytes > 0 {
 		w = &output.LimitWriter{Writer: w, Limit: opts.maxBytes}
 	}
-	if err := output.Write(w, opts.format, result); err != nil {
+	result, err := service.Executor{}.Write(ctx, w, sql, service.ExecOptions{
+		Format: opts.format, MaxRows: opts.maxRows, Driver: driver, DSN: dsn,
+		Explain: opts.explain, Transaction: opts.transaction,
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return &CommandError{Type: "timeout", Message: err.Error(), Code: ExitTimeout}
+		}
 		return &CommandError{Type: "output", Message: err.Error(), Code: ExitInternal}
 	}
 	if !opts.noHistory {

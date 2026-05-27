@@ -21,7 +21,7 @@ func Select() string {
 // Edit writes initial SQL into a temporary file, opens it in the selected
 // editor, and returns the edited contents.
 func Edit(initial string) (string, error) {
-	dir := filepath.Join(os.TempDir(), "sqio")
+	dir := filepath.Join(os.TempDir(), "sqio-editor")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}

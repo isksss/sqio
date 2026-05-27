@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/isksss/sqio/internal/config"
 	"github.com/isksss/sqio/internal/output"
@@ -161,6 +162,17 @@ func TestAddConnectionFlow(t *testing.T) {
 	}
 	if model.activeConnection != "local" {
 		t.Fatalf("unexpected active connection: %s", model.activeConnection)
+	}
+}
+
+// TestAddConnectionPasswordInputIsMasked verifies the inline connection form
+// does not render database passwords as plain text.
+func TestAddConnectionPasswordInputIsMasked(t *testing.T) {
+	model := New(config.Default(), true)
+	model.startAddConnection()
+	passwordInput := model.connInputs[6]
+	if passwordInput.EchoMode != textinput.EchoPassword || passwordInput.EchoCharacter != '*' {
+		t.Fatalf("expected masked password input, got mode=%v char=%q", passwordInput.EchoMode, passwordInput.EchoCharacter)
 	}
 }
 

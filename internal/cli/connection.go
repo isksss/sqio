@@ -29,6 +29,7 @@ type connectionOptions struct {
 	sshUser       string
 	sshPassword   string
 	sshPrivateKey string
+	sshKnownHosts string
 }
 
 // resolveConnection resolves execOptions into a driver and DSN for tests and
@@ -72,6 +73,7 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 		User:       opts.sshUser,
 		Password:   opts.sshPassword,
 		PrivateKey: opts.sshPrivateKey,
+		KnownHosts: opts.sshKnownHosts,
 	}
 	if opts.conn != "" {
 		configConn, err := cfg.Connection(opts.conn)
@@ -96,6 +98,7 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 			User:       firstNonEmpty(opts.sshUser, configConn.SSHTunnel.User),
 			Password:   firstNonEmpty(opts.sshPassword, configConn.SSHTunnel.Password),
 			PrivateKey: firstNonEmpty(opts.sshPrivateKey, configConn.SSHTunnel.PrivateKey),
+			KnownHosts: firstNonEmpty(opts.sshKnownHosts, configConn.SSHTunnel.KnownHosts),
 		}
 	}
 	if passwordEncrypted && opts.ageIdentity == "" {
@@ -173,6 +176,7 @@ func addConnectionFlags(flags interface {
 	flags.StringVar(&opts.sshUser, "ssh-user", "", "SSH tunnel user")
 	flags.StringVar(&opts.sshPassword, "ssh-password", "", "SSH tunnel password")
 	flags.StringVar(&opts.sshPrivateKey, "ssh-private-key", "", "SSH tunnel private key")
+	flags.StringVar(&opts.sshKnownHosts, "ssh-known-hosts", "", "SSH known_hosts file")
 }
 
 // firstNonEmpty returns the first non-empty string in values.

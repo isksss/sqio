@@ -116,6 +116,7 @@ sqio exec \
   --ssh-host bastion.example.com \
   --ssh-user deploy \
   --ssh-private-key ~/.ssh/id_ed25519 \
+  --ssh-known-hosts ~/.ssh/known_hosts \
   --sql 'select 1'
 ```
 

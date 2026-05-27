@@ -2,7 +2,11 @@ package db
 
 import (
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // Connection is the user-facing connection model used to construct DSNs.
@@ -58,14 +62,13 @@ func DSN(conn Connection) (string, error) {
 		if conn.Port == 0 {
 			conn.Port = 3306
 		}
-		auth := conn.User
-		if conn.Password != "" {
-			auth += ":" + conn.Password
-		}
-		if auth != "" {
-			auth += "@"
-		}
-		return fmt.Sprintf("%stcp(%s:%d)/%s", auth, conn.Host, conn.Port, conn.Database), nil
+		cfg := mysql.NewConfig()
+		cfg.User = conn.User
+		cfg.Passwd = conn.Password
+		cfg.Net = "tcp"
+		cfg.Addr = net.JoinHostPort(conn.Host, strconv.Itoa(conn.Port))
+		cfg.DBName = conn.Database
+		return cfg.FormatDSN(), nil
 	default:
 		return "", fmt.Errorf("unsupported driver: %s", conn.Driver)
 	}

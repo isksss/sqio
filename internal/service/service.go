@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -54,6 +55,34 @@ func (Executor) Exec(ctx context.Context, sql string, opts ExecOptions) (output.
 		}, nil
 	}
 	return output.Result{}, fmt.Errorf("database connection is required for this SQL")
+}
+
+// Write executes sql and writes the result directly to w when a database-backed
+// connection is available. Demo-mode SQL still uses the in-memory result path.
+func (Executor) Write(ctx context.Context, w io.Writer, sql string, opts ExecOptions) (output.Result, error) {
+	if opts.Transaction {
+		result, err := Executor{}.Exec(ctx, sql, opts)
+		if err != nil {
+			return output.Result{}, err
+		}
+		if err := output.Write(w, opts.Format, result); err != nil {
+			return output.Result{}, err
+		}
+		return result, nil
+	}
+	if opts.Driver != "" || opts.DSN != "" {
+		return db.ExecuteToWriter(ctx, db.Config{Driver: opts.Driver, DSN: opts.DSN}, sql, db.ExecuteOptions{
+			MaxRows: opts.MaxRows, Explain: opts.Explain, Transaction: opts.Transaction,
+		}, w, opts.Format)
+	}
+	result, err := Executor{}.Exec(ctx, sql, opts)
+	if err != nil {
+		return output.Result{}, err
+	}
+	if err := output.Write(w, opts.Format, result); err != nil {
+		return output.Result{}, err
+	}
+	return result, nil
 }
 
 // elapsed returns milliseconds since started.

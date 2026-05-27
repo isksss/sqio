@@ -70,7 +70,8 @@ host = "bastion"
 port = 22
 user = "deploy"
 password = "env:SQIO_SSH_PASSWORD"
-`), 0o644)
+known_hosts = "/tmp/sqio_known_hosts"
+	`), 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ password = "env:SQIO_SSH_PASSWORD"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !conn.SSHTunnel.Enabled || conn.SSHTunnel.Password != "ssh-secret" {
+	if !conn.SSHTunnel.Enabled || conn.SSHTunnel.Password != "ssh-secret" || conn.SSHTunnel.KnownHosts != "/tmp/sqio_known_hosts" {
 		t.Fatalf("unexpected tunnel config: %+v", conn.SSHTunnel)
 	}
 }

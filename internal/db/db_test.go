@@ -1,10 +1,14 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isksss/sqio/internal/output"
 )
 
 // TestExecuteSQLite verifies the behavior covered by this test helper or case.
@@ -39,6 +43,51 @@ func TestExecuteReturnsExecError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing_table") {
 		t.Fatalf("expected missing table error, got %v", err)
+	}
+}
+
+// TestExecuteToWriterStreamsLastRows verifies streaming output writes the final
+// row-returning statement directly to the supplied writer.
+func TestExecuteToWriterStreamsLastRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	result, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, `
+create table users (id integer primary key, name text);
+insert into users (name) values ('alice'), ('bob');
+select id, name from users order by id;
+`, ExecuteOptions{MaxRows: 1}, &buf, "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 1 {
+		t.Fatalf("expected streamed row count 1, got %d", result.RowCount)
+	}
+	var decoded output.Result
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid json: %v\n%s", err, buf.String())
+	}
+	if decoded.RowCount != 1 || len(decoded.Rows) != 1 {
+		t.Fatalf("unexpected streamed json summary: %+v", decoded)
+	}
+}
+
+// TestExecuteToWriterWritesExecSummary verifies non-row final statements still
+// use the regular result summary shape.
+func TestExecuteToWriterWritesExecSummary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	result, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, `
+create table users (id integer primary key);
+insert into users (id) values (1);
+`, ExecuteOptions{}, &buf, "table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 1 {
+		t.Fatalf("expected affected row count, got %d", result.RowCount)
+	}
+	if !strings.Contains(buf.String(), "OK (1 rows") {
+		t.Fatalf("unexpected summary: %s", buf.String())
 	}
 }
 

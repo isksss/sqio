@@ -7,10 +7,12 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Config describes the SSH endpoint, authentication material, and remote
@@ -22,6 +24,7 @@ type Config struct {
 	User       string
 	Password   string
 	PrivateKey string
+	KnownHosts string
 	RemoteHost string
 	RemotePort int
 }
@@ -50,10 +53,14 @@ func Start(ctx context.Context, cfg Config) (*Tunnel, error) {
 	if err != nil {
 		return nil, err
 	}
+	hostKeyCallback, err := hostKeyCallback(cfg)
+	if err != nil {
+		return nil, err
+	}
 	clientConfig := &ssh.ClientConfig{
 		User:            cfg.User,
 		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
 	}
 	client, err := ssh.Dial("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), clientConfig)
@@ -156,4 +163,30 @@ func authMethods(cfg Config) ([]ssh.AuthMethod, error) {
 		return nil, fmt.Errorf("ssh tunnel requires password or private key")
 	}
 	return auth, nil
+}
+
+// hostKeyCallback builds a known_hosts based callback for SSH host key
+// verification. An explicit path can be supplied; otherwise the user's default
+// known_hosts file is used.
+func hostKeyCallback(cfg Config) (ssh.HostKeyCallback, error) {
+	path := cfg.KnownHosts
+	if path == "" {
+		path = defaultKnownHostsPath()
+	}
+	if path == "" {
+		return nil, fmt.Errorf("ssh tunnel requires known_hosts path")
+	}
+	callback, err := knownhosts.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return callback, nil
+}
+
+func defaultKnownHostsPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".ssh", "known_hosts")
 }
