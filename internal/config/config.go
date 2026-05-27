@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isksss/sqio/internal/secret"
 )
 
 // Config is the top-level sqio configuration model.
@@ -62,15 +64,31 @@ type Connection struct {
 	SSHTunnel         SSHTunnel `toml:"ssh_tunnel"`
 }
 
+// ValidationIssue describes a configuration problem that can be reported
+// without opening database connections.
+type ValidationIssue struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
 // SSHTunnel describes optional SSH forwarding settings for a connection.
 type SSHTunnel struct {
-	Enabled    bool   `toml:"enabled"`
-	Host       string `toml:"host"`
-	Port       int    `toml:"port"`
-	User       string `toml:"user"`
-	Password   string `toml:"password"`
-	PrivateKey string `toml:"private_key"`
-	KnownHosts string `toml:"known_hosts"`
+	Enabled           bool   `toml:"enabled"`
+	Host              string `toml:"host"`
+	Port              int    `toml:"port"`
+	User              string `toml:"user"`
+	Password          string `toml:"password"`
+	PrivateKey        string `toml:"private_key"`
+	KnownHosts        string `toml:"known_hosts"`
+	KeepAlive         string `toml:"keepalive"`
+	Reconnect         bool   `toml:"reconnect"`
+	ReconnectAttempts int    `toml:"reconnect_attempts"`
+	JumpHost          string `toml:"jump_host"`
+	JumpPort          int    `toml:"jump_port"`
+	JumpUser          string `toml:"jump_user"`
+	JumpPassword      string `toml:"jump_password"`
+	JumpPrivateKey    string `toml:"jump_private_key"`
+	JumpKnownHosts    string `toml:"jump_known_hosts"`
 }
 
 // Default returns sqio's built-in configuration before file and environment
@@ -111,7 +129,9 @@ func Load(path string) (Config, error) {
 			return cfg, err
 		}
 		applyEnv(&cfg)
-		expandConnectionEnv(&cfg)
+		if err := expandConnectionEnv(&cfg); err != nil {
+			return cfg, err
+		}
 		return cfg, nil
 	}
 	if err := mergeFile(&cfg, DefaultPath()); err != nil {
@@ -127,13 +147,159 @@ func Load(path string) (Config, error) {
 		}
 	}
 	applyEnv(&cfg)
-	expandConnectionEnv(&cfg)
+	if err := expandConnectionEnv(&cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
+}
+
+// Save writes cfg as TOML, creating parent directories when needed.
+func Save(path string, cfg Config) error {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o600)
+}
+
+// UpsertConnection adds or replaces a connection in path.
+func UpsertConnection(path string, conn Connection) error {
+	cfg, err := loadMutable(path)
+	if err != nil {
+		return err
+	}
+	cfg.Connections = mergeConnections(cfg.Connections, []Connection{conn})
+	return Save(path, cfg)
+}
+
+// RemoveConnection removes a named connection from path.
+func RemoveConnection(path, name string) error {
+	cfg, err := loadMutable(path)
+	if err != nil {
+		return err
+	}
+	next := cfg.Connections[:0]
+	removed := false
+	for _, conn := range cfg.Connections {
+		if conn.Name == name {
+			removed = true
+			continue
+		}
+		next = append(next, conn)
+	}
+	if !removed {
+		return fmt.Errorf("connection not found: %s", name)
+	}
+	cfg.Connections = next
+	return Save(path, cfg)
 }
 
 // TimeoutDuration parses the query timeout string into a time.Duration.
 func TimeoutDuration(cfg Config) (time.Duration, error) {
 	return time.ParseDuration(cfg.Query.Timeout)
+}
+
+func loadMutable(path string) (Config, error) {
+	if path == "" {
+		path = DefaultPath()
+	}
+	cfg := Default()
+	if _, err := os.Stat(path); err == nil {
+		if _, err := toml.DecodeFile(path, &cfg); err != nil {
+			return cfg, err
+		}
+	} else if !os.IsNotExist(err) {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// Validate checks static configuration fields without opening database
+// connections or decrypting secrets.
+func Validate(cfg Config) []ValidationIssue {
+	issues := []ValidationIssue{}
+	if _, err := time.ParseDuration(cfg.Query.Timeout); err != nil {
+		issues = append(issues, ValidationIssue{Path: "query.timeout", Message: err.Error()})
+	}
+	if cfg.Query.MaxRows < 0 {
+		issues = append(issues, ValidationIssue{Path: "query.max_rows", Message: "must be greater than or equal to 0"})
+	}
+	if !supportedQueryFormat(cfg.Query.Format) {
+		issues = append(issues, ValidationIssue{Path: "query.format", Message: "unsupported format: " + cfg.Query.Format})
+	}
+	seen := map[string]bool{}
+	for i, conn := range cfg.Connections {
+		path := fmt.Sprintf("connections[%d]", i)
+		driver := strings.ToLower(conn.Driver)
+		if conn.Name == "" {
+			issues = append(issues, ValidationIssue{Path: path + ".name", Message: "connection name is required"})
+		} else if seen[conn.Name] {
+			issues = append(issues, ValidationIssue{Path: path + ".name", Message: "duplicate connection name: " + conn.Name})
+		}
+		if conn.Name != "" {
+			seen[conn.Name] = true
+		}
+		if conn.Driver == "" {
+			issues = append(issues, ValidationIssue{Path: path + ".driver", Message: "driver is required"})
+		} else if !supportedDriver(conn.Driver) {
+			issues = append(issues, ValidationIssue{Path: path + ".driver", Message: "unsupported driver: " + conn.Driver})
+		}
+		if (driver == "sqlite" || driver == "sqlite3") && conn.DSN == "" && conn.Database == "" {
+			issues = append(issues, ValidationIssue{Path: path + ".database", Message: "sqlite requires database or dsn"})
+		}
+		if conn.SSHTunnel.Enabled {
+			if conn.DSN != "" {
+				issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel", Message: "ssh tunnel requires host/port fields instead of dsn"})
+			}
+			if conn.SSHTunnel.Host == "" {
+				issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel.host", Message: "ssh host is required"})
+			}
+			if conn.SSHTunnel.User == "" {
+				issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel.user", Message: "ssh user is required"})
+			}
+			if conn.SSHTunnel.Password == "" && conn.SSHTunnel.PrivateKey == "" {
+				issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel", Message: "ssh password or private_key is required"})
+			}
+			if conn.SSHTunnel.KeepAlive != "" {
+				if _, err := time.ParseDuration(conn.SSHTunnel.KeepAlive); err != nil {
+					issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel.keepalive", Message: err.Error()})
+				}
+			}
+			if conn.SSHTunnel.ReconnectAttempts < 0 {
+				issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel.reconnect_attempts", Message: "must be greater than or equal to 0"})
+			}
+			if conn.SSHTunnel.JumpHost != "" {
+				if conn.SSHTunnel.JumpUser == "" && conn.SSHTunnel.User == "" {
+					issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel.jump_user", Message: "ssh jump user is required"})
+				}
+				if conn.SSHTunnel.JumpPassword == "" && conn.SSHTunnel.JumpPrivateKey == "" && conn.SSHTunnel.Password == "" && conn.SSHTunnel.PrivateKey == "" {
+					issues = append(issues, ValidationIssue{Path: path + ".ssh_tunnel", Message: "ssh jump password or private_key is required"})
+				}
+			}
+		}
+	}
+	return issues
+}
+
+func supportedQueryFormat(format string) bool {
+	switch strings.ToLower(format) {
+	case "", "table", "json", "jsonl", "csv", "tsv", "markdown", "yaml":
+		return true
+	default:
+		return false
+	}
+}
+
+func supportedDriver(driver string) bool {
+	switch strings.ToLower(driver) {
+	case "sqlite", "sqlite3", "duckdb", "postgres", "postgresql", "pgx", "cockroach", "cockroachdb", "mysql", "mariadb", "tidb", "sqlserver", "mssql", "oracle", "clickhouse", "ch":
+		return true
+	default:
+		return false
+	}
 }
 
 // DefaultPath returns the per-user global configuration path.
@@ -310,17 +476,27 @@ func applyEnv(cfg *Config) {
 	}
 }
 
-// expandConnectionEnv resolves env: references in connection passwords without
-// logging or exposing the resulting secret values.
-func expandConnectionEnv(cfg *Config) {
+// expandConnectionEnv resolves supported secret references in connection
+// passwords without logging or exposing the resulting secret values.
+func expandConnectionEnv(cfg *Config) error {
 	for i := range cfg.Connections {
-		if strings.HasPrefix(cfg.Connections[i].Password, "env:") {
-			cfg.Connections[i].Password = os.Getenv(strings.TrimPrefix(cfg.Connections[i].Password, "env:"))
+		resolved, err := secret.Resolve(cfg.Connections[i].Password)
+		if err != nil {
+			return err
 		}
-		if strings.HasPrefix(cfg.Connections[i].SSHTunnel.Password, "env:") {
-			cfg.Connections[i].SSHTunnel.Password = os.Getenv(strings.TrimPrefix(cfg.Connections[i].SSHTunnel.Password, "env:"))
+		cfg.Connections[i].Password = resolved
+		resolved, err = secret.Resolve(cfg.Connections[i].SSHTunnel.Password)
+		if err != nil {
+			return err
 		}
+		cfg.Connections[i].SSHTunnel.Password = resolved
+		resolved, err = secret.Resolve(cfg.Connections[i].SSHTunnel.JumpPassword)
+		if err != nil {
+			return err
+		}
+		cfg.Connections[i].SSHTunnel.JumpPassword = resolved
 	}
+	return nil
 }
 
 // Connection returns the named configured connection.

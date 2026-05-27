@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"time"
 
 	"github.com/isksss/sqio/internal/config"
 	"github.com/isksss/sqio/internal/db"
@@ -12,24 +13,33 @@ import (
 // connectionOptions contains flags that identify a database connection or SSH
 // tunnel.
 type connectionOptions struct {
-	conn          string
-	driver        string
-	dsn           string
-	database      string
-	host          string
-	port          int
-	user          string
-	password      string
-	sslMode       string
-	readonly      bool
-	ageIdentity   string
-	sshTunnel     bool
-	sshHost       string
-	sshPort       int
-	sshUser       string
-	sshPassword   string
-	sshPrivateKey string
-	sshKnownHosts string
+	conn                 string
+	driver               string
+	dsn                  string
+	database             string
+	host                 string
+	port                 int
+	user                 string
+	password             string
+	sslMode              string
+	readonly             bool
+	ageIdentity          string
+	sshTunnel            bool
+	sshHost              string
+	sshPort              int
+	sshUser              string
+	sshPassword          string
+	sshPrivateKey        string
+	sshKnownHosts        string
+	sshKeepAlive         string
+	sshReconnect         bool
+	sshReconnectAttempts int
+	sshJumpHost          string
+	sshJumpPort          int
+	sshJumpUser          string
+	sshJumpPassword      string
+	sshJumpPrivateKey    string
+	sshJumpKnownHosts    string
 }
 
 // resolveConnection resolves execOptions into a driver and DSN for tests and
@@ -67,13 +77,21 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 		DSN:      opts.dsn,
 	}
 	tunnelConfig := tunnel.Config{
-		Enabled:    opts.sshTunnel,
-		Host:       opts.sshHost,
-		Port:       opts.sshPort,
-		User:       opts.sshUser,
-		Password:   opts.sshPassword,
-		PrivateKey: opts.sshPrivateKey,
-		KnownHosts: opts.sshKnownHosts,
+		Enabled:           opts.sshTunnel,
+		Host:              opts.sshHost,
+		Port:              opts.sshPort,
+		User:              opts.sshUser,
+		Password:          opts.sshPassword,
+		PrivateKey:        opts.sshPrivateKey,
+		KnownHosts:        opts.sshKnownHosts,
+		Reconnect:         opts.sshReconnect,
+		ReconnectAttempts: opts.sshReconnectAttempts,
+		JumpHost:          opts.sshJumpHost,
+		JumpPort:          opts.sshJumpPort,
+		JumpUser:          opts.sshJumpUser,
+		JumpPassword:      opts.sshJumpPassword,
+		JumpPrivateKey:    opts.sshJumpPrivateKey,
+		JumpKnownHosts:    opts.sshJumpKnownHosts,
 	}
 	if opts.conn != "" {
 		configConn, err := cfg.Connection(opts.conn)
@@ -92,14 +110,35 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 		}
 		passwordEncrypted = configConn.PasswordEncrypted
 		tunnelConfig = tunnel.Config{
-			Enabled:    configConn.SSHTunnel.Enabled || opts.sshTunnel,
-			Host:       firstNonEmpty(opts.sshHost, configConn.SSHTunnel.Host),
-			Port:       firstNonZero(opts.sshPort, configConn.SSHTunnel.Port),
-			User:       firstNonEmpty(opts.sshUser, configConn.SSHTunnel.User),
-			Password:   firstNonEmpty(opts.sshPassword, configConn.SSHTunnel.Password),
-			PrivateKey: firstNonEmpty(opts.sshPrivateKey, configConn.SSHTunnel.PrivateKey),
-			KnownHosts: firstNonEmpty(opts.sshKnownHosts, configConn.SSHTunnel.KnownHosts),
+			Enabled:           configConn.SSHTunnel.Enabled || opts.sshTunnel,
+			Host:              firstNonEmpty(opts.sshHost, configConn.SSHTunnel.Host),
+			Port:              firstNonZero(opts.sshPort, configConn.SSHTunnel.Port),
+			User:              firstNonEmpty(opts.sshUser, configConn.SSHTunnel.User),
+			Password:          firstNonEmpty(opts.sshPassword, configConn.SSHTunnel.Password),
+			PrivateKey:        firstNonEmpty(opts.sshPrivateKey, configConn.SSHTunnel.PrivateKey),
+			KnownHosts:        firstNonEmpty(opts.sshKnownHosts, configConn.SSHTunnel.KnownHosts),
+			Reconnect:         opts.sshReconnect || configConn.SSHTunnel.Reconnect,
+			ReconnectAttempts: firstNonZero(opts.sshReconnectAttempts, configConn.SSHTunnel.ReconnectAttempts),
+			JumpHost:          firstNonEmpty(opts.sshJumpHost, configConn.SSHTunnel.JumpHost),
+			JumpPort:          firstNonZero(opts.sshJumpPort, configConn.SSHTunnel.JumpPort),
+			JumpUser:          firstNonEmpty(opts.sshJumpUser, configConn.SSHTunnel.JumpUser),
+			JumpPassword:      firstNonEmpty(opts.sshJumpPassword, configConn.SSHTunnel.JumpPassword),
+			JumpPrivateKey:    firstNonEmpty(opts.sshJumpPrivateKey, configConn.SSHTunnel.JumpPrivateKey),
+			JumpKnownHosts:    firstNonEmpty(opts.sshJumpKnownHosts, configConn.SSHTunnel.JumpKnownHosts),
 		}
+		if keepAlive := firstNonEmpty(opts.sshKeepAlive, configConn.SSHTunnel.KeepAlive); keepAlive != "" {
+			interval, err := time.ParseDuration(keepAlive)
+			if err != nil {
+				return "", "", nil, &CommandError{Type: "connection", Message: err.Error(), Code: ExitConnection}
+			}
+			tunnelConfig.KeepAliveInterval = interval
+		}
+	} else if opts.sshKeepAlive != "" {
+		interval, err := time.ParseDuration(opts.sshKeepAlive)
+		if err != nil {
+			return "", "", nil, &CommandError{Type: "connection", Message: err.Error(), Code: ExitConnection}
+		}
+		tunnelConfig.KeepAliveInterval = interval
 	}
 	if passwordEncrypted && opts.ageIdentity == "" {
 		return "", "", nil, &CommandError{Type: "connection", Message: "age identity is required for encrypted password", Code: ExitConnection}
@@ -177,6 +216,15 @@ func addConnectionFlags(flags interface {
 	flags.StringVar(&opts.sshPassword, "ssh-password", "", "SSH tunnel password")
 	flags.StringVar(&opts.sshPrivateKey, "ssh-private-key", "", "SSH tunnel private key")
 	flags.StringVar(&opts.sshKnownHosts, "ssh-known-hosts", "", "SSH known_hosts file")
+	flags.StringVar(&opts.sshKeepAlive, "ssh-keepalive", "", "SSH keepalive interval")
+	flags.BoolVar(&opts.sshReconnect, "ssh-reconnect", false, "reconnect SSH tunnel on remote dial failure")
+	flags.IntVar(&opts.sshReconnectAttempts, "ssh-reconnect-attempts", 0, "SSH reconnect attempts")
+	flags.StringVar(&opts.sshJumpHost, "ssh-jump-host", "", "SSH jump host")
+	flags.IntVar(&opts.sshJumpPort, "ssh-jump-port", 0, "SSH jump port")
+	flags.StringVar(&opts.sshJumpUser, "ssh-jump-user", "", "SSH jump user")
+	flags.StringVar(&opts.sshJumpPassword, "ssh-jump-password", "", "SSH jump password")
+	flags.StringVar(&opts.sshJumpPrivateKey, "ssh-jump-private-key", "", "SSH jump private key")
+	flags.StringVar(&opts.sshJumpKnownHosts, "ssh-jump-known-hosts", "", "SSH jump known_hosts file")
 }
 
 // firstNonEmpty returns the first non-empty string in values.
@@ -202,10 +250,16 @@ func firstNonZero(values ...int) int {
 // defaultPort returns the conventional TCP port for known database drivers.
 func defaultPort(driver string) int {
 	switch driver {
-	case "postgres", "postgresql", "pgx":
+	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
 		return 5432
-	case "mysql":
+	case "mysql", "mariadb", "tidb":
 		return 3306
+	case "sqlserver", "mssql":
+		return 1433
+	case "oracle":
+		return 1521
+	case "clickhouse", "ch":
+		return 9000
 	default:
 		return 0
 	}

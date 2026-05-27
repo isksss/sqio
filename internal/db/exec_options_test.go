@@ -41,6 +41,18 @@ func TestExecuteExplainSQLite(t *testing.T) {
 	}
 }
 
+func TestExplainSQLPrefixes(t *testing.T) {
+	if got := explainSQL("sqlite", "select 1", true); got != "EXPLAIN QUERY PLAN select 1" {
+		t.Fatalf("unexpected sqlite explain: %s", got)
+	}
+	if got := explainSQL("pgx", "select 1", true); got != "EXPLAIN ANALYZE select 1" {
+		t.Fatalf("unexpected postgres analyze explain: %s", got)
+	}
+	if got := explainSQL("mysql", "select 1; select 2", false); got != "EXPLAIN select 1;EXPLAIN select 2" {
+		t.Fatalf("unexpected mysql explain: %s", got)
+	}
+}
+
 // TestExecuteTransaction verifies the behavior covered by this test helper or case.
 func TestExecuteTransaction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")

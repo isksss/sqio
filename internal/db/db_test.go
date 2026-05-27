@@ -50,11 +50,37 @@ func TestOpenNormalizeErrorsAndAliases(t *testing.T) {
 	if _, _, err := Open(context.Background(), Config{Driver: "sqlite"}); err == nil {
 		t.Fatal("expected sqlite dsn error")
 	}
+	if _, _, err := Open(context.Background(), Config{Driver: "duckdb"}); err == nil {
+		t.Fatal("expected duckdb dsn error")
+	}
 	if _, _, err := Open(context.Background(), Config{Driver: "postgres"}); err == nil {
 		t.Fatal("expected postgres dsn error")
 	}
 	if _, _, err := Open(context.Background(), Config{Driver: "mysql"}); err == nil {
 		t.Fatal("expected mysql dsn error")
+	}
+	if driver, _, err := normalize(Config{Driver: "cockroachdb", DSN: "postgres://example"}); err != nil || driver != "pgx" {
+		t.Fatalf("unexpected cockroach normalize: %s %v", driver, err)
+	}
+	if driver, _, err := normalize(Config{Driver: "tidb", DSN: "user@tcp(localhost:4000)/test"}); err != nil || driver != "mysql" {
+		t.Fatalf("unexpected tidb normalize: %s %v", driver, err)
+	}
+	for input, want := range map[string]string{
+		"mssql":      "sqlserver",
+		"sqlserver":  "sqlserver",
+		"oracle":     "oracle",
+		"clickhouse": "clickhouse",
+		"ch":         "clickhouse",
+		"duckdb":     "duckdb",
+	} {
+		if driver, _, err := normalize(Config{Driver: input, DSN: "dsn"}); err != nil || driver != want {
+			t.Fatalf("unexpected normalize for %s: %s %v", input, driver, err)
+		}
+	}
+	for _, input := range []string{"sqlserver", "oracle", "clickhouse"} {
+		if _, _, err := normalize(Config{Driver: input}); err == nil {
+			t.Fatalf("expected missing dsn error for %s", input)
+		}
 	}
 	if _, _, err := Open(context.Background(), Config{Driver: "unknown", DSN: "x"}); err == nil {
 		t.Fatal("expected unsupported driver error")
@@ -85,6 +111,9 @@ func TestReturnsRows(t *testing.T) {
 	}
 	if returnsRows("insert into users values (1)") {
 		t.Fatal("expected insert to be non-row statement")
+	}
+	if placeholder("sqlserver", 2) != "@p2" || placeholder("oracle", 2) != ":2" || placeholder("clickhouse", 2) != "?" {
+		t.Fatal("unexpected driver placeholder")
 	}
 }
 
@@ -130,6 +159,195 @@ insert into users (id) values (1);
 	}
 	if !strings.Contains(buf.String(), "OK (1 rows") {
 		t.Fatalf("unexpected summary: %s", buf.String())
+	}
+}
+
+func TestExecuteToWriterTransactionAndEarlierRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	result, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, `
+create table users (id integer primary key, name text);
+select 1;
+insert into users (id, name) values (1, 'alice');
+`, ExecuteOptions{Transaction: true}, &buf, "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 1 || !strings.Contains(buf.String(), `"row_count": 1`) {
+		t.Fatalf("unexpected transaction writer result=%+v output=%s", result, buf.String())
+	}
+	queryResult, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `select name from users`, ExecuteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queryResult.RowCount != 1 || queryResult.Rows[0][0] != "alice" {
+		t.Fatalf("expected committed row, got %+v", queryResult)
+	}
+}
+
+func TestExecuteToWriterErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	if _, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, "select * from missing", ExecuteOptions{}, &buf, "json"); err == nil {
+		t.Fatal("expected query error")
+	}
+	if _, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, "create table users (id integer primary key); insert into missing values (1)", ExecuteOptions{}, &buf, "json"); err == nil {
+		t.Fatal("expected exec error")
+	}
+	if _, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, "select 1", ExecuteOptions{}, errorWriter{}, "json"); err == nil {
+		t.Fatal("expected writer error")
+	}
+}
+
+func TestDumpTableAndLoadCSV(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	if _, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `create table users (id integer primary key, name text);`, ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadCSV(context.Background(), Config{Driver: "sqlite", DSN: path}, "users", strings.NewReader("id,name\n1,alice\n2,bob\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 2 {
+		t.Fatalf("expected 2 loaded rows, got %d", result.RowsAffected)
+	}
+	var buf bytes.Buffer
+	dumped, err := DumpTable(context.Background(), Config{Driver: "sqlite", DSN: path}, "users", ExecuteOptions{MaxRows: 1}, &buf, "csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dumped.RowCount != 1 || !strings.Contains(buf.String(), "id,name\n1,alice\n") {
+		t.Fatalf("unexpected dump result=%+v output=%q", dumped, buf.String())
+	}
+}
+
+type errorWriter struct{}
+
+func (errorWriter) Write([]byte) (int, error) {
+	return 0, dbAssertErr("write failed")
+}
+
+type dbAssertErr string
+
+func (e dbAssertErr) Error() string { return string(e) }
+
+func TestLoadJSONAndJSONL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	cfg := Config{Driver: "sqlite", DSN: path}
+	if _, err := Execute(context.Background(), cfg, `create table users (id integer primary key, name text);`, ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadJSON(context.Background(), cfg, "users", strings.NewReader(`{"columns":["id","name"],"rows":[[1,"alice"]]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected 1 json row, got %d", result.RowsAffected)
+	}
+	result, err = LoadJSON(context.Background(), cfg, "users", strings.NewReader(`[{"id":2,"name":"bob"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected 1 json object row, got %d", result.RowsAffected)
+	}
+	result, err = LoadJSONL(context.Background(), cfg, "users", strings.NewReader("{\"id\":3,\"name\":\"carol\"}\n\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected 1 jsonl row, got %d", result.RowsAffected)
+	}
+	queryResult, err := Execute(context.Background(), cfg, "select name from users order by id", ExecuteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queryResult.RowCount != 3 || queryResult.Rows[2][0] != "carol" {
+		t.Fatalf("unexpected loaded rows: %+v", queryResult)
+	}
+}
+
+func TestLoadYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	cfg := Config{Driver: "sqlite", DSN: path}
+	if _, err := Execute(context.Background(), cfg, `create table users (id integer primary key, name text);`, ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadYAML(context.Background(), cfg, "users", strings.NewReader("columns: [id, name]\nrows:\n  - [1, alice]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected 1 yaml result row, got %d", result.RowsAffected)
+	}
+	result, err = LoadYAML(context.Background(), cfg, "users", strings.NewReader("- id: 2\n  name: bob\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected 1 yaml object row, got %d", result.RowsAffected)
+	}
+	queryResult, err := Execute(context.Background(), cfg, "select name from users order by id", ExecuteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queryResult.RowCount != 2 || queryResult.Rows[1][0] != "bob" {
+		t.Fatalf("unexpected yaml loaded rows: %+v", queryResult)
+	}
+}
+
+func TestLoadYAMLError(t *testing.T) {
+	cfg := Config{Driver: "sqlite", DSN: filepath.Join(t.TempDir(), "test.db")}
+	if _, err := LoadYAML(context.Background(), cfg, "users", strings.NewReader(": bad")); err == nil {
+		t.Fatal("expected bad yaml error")
+	}
+}
+
+func TestLoadJSONErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	cfg := Config{Driver: "sqlite", DSN: path}
+	if _, err := LoadJSON(context.Background(), cfg, "users", strings.NewReader(`not-json`)); err == nil {
+		t.Fatal("expected bad json error")
+	}
+	if _, err := LoadJSONL(context.Background(), cfg, "users", strings.NewReader(`not-json`)); err == nil {
+		t.Fatal("expected bad jsonl error")
+	}
+	if _, err := loadRows(context.Background(), cfg, "users", nil, nil); err == nil {
+		t.Fatal("expected missing columns error")
+	}
+	if _, err := loadRows(context.Background(), cfg, "users", []string{"id"}, [][]interface{}{{1, 2}}); err == nil {
+		t.Fatal("expected wrong row width error")
+	}
+	if _, err := loadRows(context.Background(), cfg, "users", []string{""}, [][]interface{}{{1}}); err == nil {
+		t.Fatal("expected empty column error")
+	}
+}
+
+func TestLoadCSVErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	if _, err := Execute(context.Background(), Config{Driver: "sqlite", DSN: path}, `create table users (id integer primary key, name text);`, ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for name, input := range map[string]string{
+		"empty header":       "",
+		"empty column":       "id,\n1,a\n",
+		"wrong record width": "id,name\n1\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadCSV(context.Background(), Config{Driver: "sqlite", DSN: path}, "users", strings.NewReader(input)); err == nil {
+				t.Fatal("expected load error")
+			}
+		})
+	}
+	if _, err := LoadCSV(context.Background(), Config{Driver: "sqlite", DSN: path}, "", strings.NewReader("id\n1\n")); err == nil {
+		t.Fatal("expected missing table error")
+	}
+	var buf bytes.Buffer
+	if _, err := DumpTable(context.Background(), Config{Driver: "sqlite", DSN: path}, "", ExecuteOptions{}, &buf, "csv"); err == nil {
+		t.Fatal("expected missing dump table error")
+	}
+	if _, err := DumpTable(context.Background(), Config{Driver: "sqlite", DSN: path}, "missing", ExecuteOptions{}, &buf, "csv"); err == nil {
+		t.Fatal("expected missing dump table query error")
 	}
 }
 
@@ -193,6 +411,13 @@ create table users (id integer primary key, name text not null default 'anonymou
 	}
 	if references["role_id"] != `"roles"("id")` {
 		t.Fatalf("expected role_id reference, got %s", references["role_id"])
+	}
+	schemas, err := Schemas(context.Background(), Config{Driver: "sqlite", DSN: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schemas) == 0 || schemas[0] != "main" {
+		t.Fatalf("unexpected sqlite schemas: %+v", schemas)
 	}
 }
 
