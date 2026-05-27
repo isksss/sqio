@@ -54,6 +54,7 @@ func resolveConnectionOptions(cfg config.Config, opts connectionOptions) (string
 // password values when requested, starts an optional SSH tunnel, and returns a
 // cleanup function for transient resources.
 func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOptions) (string, string, func(), error) {
+	passwordEncrypted := false
 	conn := db.Connection{
 		Driver:   opts.driver,
 		Host:     opts.host,
@@ -87,6 +88,7 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 			SSLMode:  configConn.SSLMode,
 			DSN:      configConn.DSN,
 		}
+		passwordEncrypted = configConn.PasswordEncrypted
 		tunnelConfig = tunnel.Config{
 			Enabled:    configConn.SSHTunnel.Enabled || opts.sshTunnel,
 			Host:       firstNonEmpty(opts.sshHost, configConn.SSHTunnel.Host),
@@ -96,7 +98,10 @@ func prepareConnection(ctx context.Context, cfg config.Config, opts connectionOp
 			PrivateKey: firstNonEmpty(opts.sshPrivateKey, configConn.SSHTunnel.PrivateKey),
 		}
 	}
-	if conn.Password != "" && opts.ageIdentity != "" {
+	if passwordEncrypted && opts.ageIdentity == "" {
+		return "", "", nil, &CommandError{Type: "connection", Message: "age identity is required for encrypted password", Code: ExitConnection}
+	}
+	if passwordEncrypted && conn.Password != "" {
 		decrypted, err := secret.DecryptAge(conn.Password, opts.ageIdentity)
 		if err != nil {
 			return "", "", nil, &CommandError{Type: "connection", Message: err.Error(), Code: ExitConnection}

@@ -15,10 +15,10 @@ import (
 // Columns is empty for statements that do not return rows, while RowCount and
 // ElapsedMS still describe the completed operation.
 type Result struct {
-	Columns   []string        `json:"columns"`
-	Rows      [][]interface{} `json:"rows"`
-	RowCount  int             `json:"row_count"`
-	ElapsedMS int64           `json:"elapsed_ms"`
+	Columns   []string        `json:"columns" yaml:"columns"`
+	Rows      [][]interface{} `json:"rows" yaml:"rows"`
+	RowCount  int             `json:"row_count" yaml:"row_count"`
+	ElapsedMS int64           `json:"elapsed_ms" yaml:"elapsed_ms"`
 }
 
 // LimitWriter wraps another writer and fails once the configured byte limit is
@@ -91,7 +91,7 @@ func Write(w io.Writer, format string, result Result) error {
 		for _, row := range result.Rows {
 			record := make([]string, len(row))
 			for i, v := range row {
-				record[i] = fmt.Sprint(v)
+				record[i] = cellString(v)
 			}
 			if err := writer.Write(record); err != nil {
 				return err
@@ -124,7 +124,7 @@ func writeMarkdown(w io.Writer, result Result) error {
 	for _, row := range result.Rows {
 		values := make([]string, len(row))
 		for i, v := range row {
-			values[i] = fmt.Sprint(v)
+			values[i] = markdownCell(v)
 		}
 		if _, err := fmt.Fprintf(w, "| %s |\n", strings.Join(values, " | ")); err != nil {
 			return err
@@ -146,11 +146,28 @@ func writeTable(w io.Writer, result Result) error {
 	for _, row := range result.Rows {
 		values := make([]string, len(row))
 		for i, v := range row {
-			values[i] = fmt.Sprint(v)
+			values[i] = cellString(v)
 		}
 		if _, err := fmt.Fprintln(w, strings.Join(values, "\t")); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func cellString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
+}
+
+func markdownCell(v interface{}) string {
+	s := cellString(v)
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	s = strings.ReplaceAll(s, "\r\n", "<br>")
+	s = strings.ReplaceAll(s, "\n", "<br>")
+	s = strings.ReplaceAll(s, "\r", "<br>")
+	return s
 }

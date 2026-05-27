@@ -30,6 +30,18 @@ func TestWriteMarkdown(t *testing.T) {
 	}
 }
 
+// TestWriteMarkdownEscapesCells verifies the behavior covered by this test helper or case.
+func TestWriteMarkdownEscapesCells(t *testing.T) {
+	var buf bytes.Buffer
+	err := Write(&buf, "markdown", Result{Columns: []string{"note"}, Rows: [][]interface{}{{"a|b\nc"}}, RowCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `a\|b<br>c`) {
+		t.Fatalf("unexpected markdown: %s", buf.String())
+	}
+}
+
 // TestWriteYAML verifies the behavior covered by this test helper or case.
 func TestWriteYAML(t *testing.T) {
 	var buf bytes.Buffer
@@ -37,8 +49,20 @@ func TestWriteYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "rowcount: 1") {
+	if !strings.Contains(buf.String(), "row_count: 1") {
 		t.Fatalf("unexpected yaml: %s", buf.String())
+	}
+}
+
+// TestWriteCSVUsesEmptyStringForNull verifies the behavior covered by this test helper or case.
+func TestWriteCSVUsesEmptyStringForNull(t *testing.T) {
+	var buf bytes.Buffer
+	err := Write(&buf, "csv", Result{Columns: []string{"id", "name"}, Rows: [][]interface{}{{1, nil}}, RowCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "1,\n") {
+		t.Fatalf("unexpected csv: %q", buf.String())
 	}
 }
 
