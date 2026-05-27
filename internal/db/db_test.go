@@ -46,6 +46,48 @@ func TestExecuteReturnsExecError(t *testing.T) {
 	}
 }
 
+func TestOpenNormalizeErrorsAndAliases(t *testing.T) {
+	if _, _, err := Open(context.Background(), Config{Driver: "sqlite"}); err == nil {
+		t.Fatal("expected sqlite dsn error")
+	}
+	if _, _, err := Open(context.Background(), Config{Driver: "postgres"}); err == nil {
+		t.Fatal("expected postgres dsn error")
+	}
+	if _, _, err := Open(context.Background(), Config{Driver: "mysql"}); err == nil {
+		t.Fatal("expected mysql dsn error")
+	}
+	if _, _, err := Open(context.Background(), Config{Driver: "unknown", DSN: "x"}); err == nil {
+		t.Fatal("expected unsupported driver error")
+	}
+}
+
+func TestExecuteToWriterEmptyAndBadFormat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	result, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, "", ExecuteOptions{}, &buf, "table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 0 || !strings.Contains(buf.String(), "OK (0 rows") {
+		t.Fatalf("unexpected empty result: %+v %s", result, buf.String())
+	}
+	buf.Reset()
+	if _, err := ExecuteToWriter(context.Background(), Config{Driver: "sqlite", DSN: path}, "select 1", ExecuteOptions{}, &buf, "bad"); err == nil {
+		t.Fatal("expected bad format error")
+	}
+}
+
+func TestReturnsRows(t *testing.T) {
+	for _, sql := range []string{"select 1", "with x as (select 1) select * from x", "show tables", "describe users", "explain select 1", "pragma table_info(users)"} {
+		if !returnsRows(sql) {
+			t.Fatalf("expected row-returning SQL: %s", sql)
+		}
+	}
+	if returnsRows("insert into users values (1)") {
+		t.Fatal("expected insert to be non-row statement")
+	}
+}
+
 // TestExecuteToWriterStreamsLastRows verifies streaming output writes the final
 // row-returning statement directly to the supplied writer.
 func TestExecuteToWriterStreamsLastRows(t *testing.T) {

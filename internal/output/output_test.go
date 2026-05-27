@@ -67,6 +67,40 @@ func TestWriteCSVUsesEmptyStringForNull(t *testing.T) {
 	}
 }
 
+func TestWriteAdditionalFormats(t *testing.T) {
+	cases := map[string]string{
+		"table": "id\tname\n1\talice\n",
+		"tsv":   "id\tname\n1\talice\n",
+		"jsonl": "{\"id\":1,\"name\":\"alice\"}\n",
+	}
+	for format, want := range cases {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := Write(&buf, format, Result{Columns: []string{"id", "name"}, Rows: [][]interface{}{{1, "alice"}}, RowCount: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if buf.String() != want {
+				t.Fatalf("unexpected %s: %q", format, buf.String())
+			}
+		})
+	}
+}
+
+func TestWriteSummaries(t *testing.T) {
+	for _, format := range []string{"markdown", ""} {
+		t.Run(format, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := Write(&buf, format, Result{RowCount: 2, ElapsedMS: 3}); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(buf.String(), "OK (2 rows, 3 ms)") {
+				t.Fatalf("unexpected summary: %q", buf.String())
+			}
+		})
+	}
+}
+
 // TestLimitWriter verifies the behavior covered by this test helper or case.
 func TestLimitWriter(t *testing.T) {
 	var buf bytes.Buffer
@@ -77,6 +111,24 @@ func TestLimitWriter(t *testing.T) {
 	}
 	if buf.String() != "abc" {
 		t.Fatalf("expected truncated output, got %q", buf.String())
+	}
+}
+
+func TestLimitWriterPassThroughAndExactLimit(t *testing.T) {
+	var buf bytes.Buffer
+	writer := &LimitWriter{Writer: &buf}
+	n, err := writer.Write([]byte("abc"))
+	if err != nil || n != 3 || buf.String() != "abc" {
+		t.Fatalf("unexpected pass-through write n=%d err=%v buf=%q", n, err, buf.String())
+	}
+	buf.Reset()
+	writer = &LimitWriter{Writer: &buf, Limit: 3}
+	if _, err = writer.Write([]byte("def")); err != nil {
+		t.Fatal(err)
+	}
+	n, err = writer.Write([]byte("g"))
+	if err == nil || n != 0 {
+		t.Fatalf("expected exhausted limit without write, got n=%d err=%v", n, err)
 	}
 }
 
@@ -104,6 +156,12 @@ func TestStreamWriterJSON(t *testing.T) {
 	}
 	if decoded.RowCount != 1 {
 		t.Fatalf("unexpected json result: %+v", decoded)
+	}
+}
+
+func TestStreamWriterUnsupportedFormat(t *testing.T) {
+	if _, err := NewStreamWriter(&bytes.Buffer{}, "bad", []string{"id"}, nil); err == nil {
+		t.Fatal("expected unsupported format error")
 	}
 }
 

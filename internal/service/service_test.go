@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,6 +31,44 @@ func TestExecutorWriteSelectOne(t *testing.T) {
 	}
 	if result.RowCount != 1 || !strings.Contains(buf.String(), `"row_count": 1`) {
 		t.Fatalf("unexpected write result: %+v %s", result, buf.String())
+	}
+}
+
+func TestExecutorConnectedWriteAndTransaction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	var buf bytes.Buffer
+	result, err := Executor{}.Write(context.Background(), &buf, `
+create table users (id integer primary key);
+insert into users (id) values (1);
+select id from users;
+`, ExecOptions{Driver: "sqlite", DSN: path, Format: "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 1 || !strings.Contains(buf.String(), `"row_count": 1`) {
+		t.Fatalf("unexpected connected write: %+v %s", result, buf.String())
+	}
+	buf.Reset()
+	result, err = Executor{}.Write(context.Background(), &buf, `insert into users (id) values (2);`, ExecOptions{Driver: "sqlite", DSN: path, Format: "table", Transaction: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RowCount != 1 || !strings.Contains(buf.String(), "OK (1 rows") {
+		t.Fatalf("unexpected transaction write: %+v %s", result, buf.String())
+	}
+}
+
+func TestExecutorErrors(t *testing.T) {
+	if _, err := (Executor{}).Exec(context.Background(), "", ExecOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Executor{}).Exec(context.Background(), "select 2", ExecOptions{}); err == nil {
+		t.Fatal("expected missing connection error")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (Executor{}).Exec(ctx, "select 1", ExecOptions{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled error, got %v", err)
 	}
 }
 
@@ -67,6 +106,56 @@ func TestMetadataColumnsDDLAndSchema(t *testing.T) {
 	}
 	if len(schema.Tables) != 2 {
 		t.Fatalf("unexpected schema: %+v", schema)
+	}
+}
+
+func TestConnectedMetadataServiceSQLite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	if _, err := db.Execute(context.Background(), db.Config{Driver: "sqlite", DSN: path}, `create table users (id integer primary key, name text);`, db.ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewConnectedMetadataService("sqlite", path)
+	tables, err := service.Tables(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 1 || tables[0].Name != "users" {
+		t.Fatalf("unexpected tables: %+v", tables)
+	}
+	columns, err := service.Columns(context.Background(), "users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 2 {
+		t.Fatalf("unexpected columns: %+v", columns)
+	}
+	ddl, err := service.DDL(context.Background(), "users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ddl, "CREATE TABLE users") {
+		t.Fatalf("unexpected ddl: %s", ddl)
+	}
+	schema, err := service.Schema(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Tables) != 1 {
+		t.Fatalf("unexpected schema: %+v", schema)
+	}
+}
+
+func TestConnectedMetadataServiceMissingTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	if _, err := db.Execute(context.Background(), db.Config{Driver: "sqlite", DSN: path}, `create table users (id integer primary key);`, db.ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewConnectedMetadataService("sqlite", path)
+	if _, err := service.Columns(context.Background(), "missing"); err == nil {
+		t.Fatal("expected missing connected columns error")
+	}
+	if _, err := service.DDL(context.Background(), "missing"); err == nil {
+		t.Fatal("expected missing connected ddl error")
 	}
 }
 

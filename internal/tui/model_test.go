@@ -188,3 +188,79 @@ func TestViewIncludesPanels(t *testing.T) {
 		}
 	}
 }
+
+func TestInitRunSQLAndLoadMetadata(t *testing.T) {
+	model := New(config.Default(), true)
+	if cmd := model.Init(); cmd == nil {
+		t.Fatal("expected init command")
+	}
+	msg := runSQL(service.Executor{}, service.ExecOptions{}, "select 1")()
+	result, ok := msg.(execResultMsg)
+	if !ok || result.err != nil || result.result.RowCount != 1 {
+		t.Fatalf("unexpected run sql msg: %#v", msg)
+	}
+	meta := loadMetadata(service.NewMetadataService())()
+	metadata, ok := meta.(metadataMsg)
+	if !ok || metadata.err != nil || len(metadata.tables) == 0 {
+		t.Fatalf("unexpected metadata msg: %#v", meta)
+	}
+}
+
+func TestViewAndConnectionRenderingBranches(t *testing.T) {
+	model := New(config.Default(), true)
+	if got := model.View(); got != "sqio\n" {
+		t.Fatalf("unexpected zero-size view: %q", got)
+	}
+	model.width = 80
+	model.height = 20
+	model.showHelp = true
+	model.startAddConnection()
+	view := model.View()
+	for _, want := range []string{"help:", "[DB追加]", "password"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected %q in view: %s", want, view)
+		}
+	}
+	if got := model.renderAddConnection(); !strings.Contains(got, "[DB追加]") {
+		t.Fatalf("unexpected add connection view: %s", got)
+	}
+	model.activeConnection = "local"
+	if got := model.currentConnectionLabel(); got != "local" {
+		t.Fatalf("unexpected active label: %s", got)
+	}
+	model.activeConnection = ""
+	model.execOpts.Driver = "sqlite"
+	if got := model.currentConnectionLabel(); got != "sqlite (direct)" {
+		t.Fatalf("unexpected direct label: %s", got)
+	}
+}
+
+func TestUpdateAdditionalKeysAndErrors(t *testing.T) {
+	model := New(config.Default(), true)
+	updated, _ := model.Update(metadataMsg{err: assertErr("boom")})
+	model = updated.(Model)
+	if !strings.Contains(model.status, "metadata error") {
+		t.Fatalf("unexpected metadata error status: %s", model.status)
+	}
+	updated, _ = model.Update(execResultMsg{err: assertErr("boom")})
+	model = updated.(Model)
+	if !strings.Contains(model.status, "error: boom") {
+		t.Fatalf("unexpected exec error status: %s", model.status)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if model.addingConnection {
+		t.Fatal("expected add connection mode to close")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+	if model.focus != 1 {
+		t.Fatalf("unexpected focus: %d", model.focus)
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }

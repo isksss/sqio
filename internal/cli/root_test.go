@@ -177,6 +177,62 @@ func TestER(t *testing.T) {
 	}
 }
 
+func TestMetadataOutputFilesAndErrors(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "schema.json")
+	out, err := executeForTest("schema", "export", "--format", "json", "--out", outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Fatalf("expected no stdout for file output, got %s", out)
+	}
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"tables"`) {
+		t.Fatalf("expected schema file, got %s", content)
+	}
+	_, err = executeForTest("columns", "--table", "missing")
+	if err == nil {
+		t.Fatal("expected missing table error")
+	}
+	_, err = executeForTest("ddl", "--table", "missing")
+	if err == nil {
+		t.Fatal("expected missing ddl error")
+	}
+	_, err = executeForTest("er", "--format", "bad")
+	if err == nil {
+		t.Fatal("expected bad er format error")
+	}
+}
+
+func TestExecOutputAndErrorBranches(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "result.json")
+	out, err := executeForTest("exec", "--sql", "select 1", "--format", "json", "--out", outPath, "--no-history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "" {
+		t.Fatalf("expected no stdout for file output, got %s", out)
+	}
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"row_count": 1`) {
+		t.Fatalf("unexpected output file: %s", content)
+	}
+	if _, err := executeForTest("exec", "--sql", "select 1", "--timeout", "bad"); err == nil {
+		t.Fatal("expected bad timeout error")
+	}
+	if _, err := executeForTest("exec", "--sql", "select 1", "--format", "bad"); err == nil {
+		t.Fatal("expected bad output format error")
+	}
+}
+
 // TestInitCommandCreatesLocalConfig verifies the behavior covered by this test helper or case.
 func TestInitCommandCreatesLocalConfig(t *testing.T) {
 	dir := t.TempDir()

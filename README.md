@@ -96,6 +96,21 @@ name = "local"
 driver = "sqlite"
 database = "/tmp/sqio.db"
 readonly = false
+
+[[connections]]
+name = "prod"
+driver = "postgres"
+host = "db.internal"
+database = "app"
+user = "app"
+readonly = true
+
+[connections.ssh_tunnel]
+enabled = true
+host = "bastion.example.com"
+user = "deploy"
+private_key = "~/.ssh/id_ed25519"
+known_hosts = "~/.ssh/known_hosts"
 ```
 
 暗号化されたパスワードは age identity file で復号できます。
@@ -105,6 +120,9 @@ sqio exec --conn prod --age-identity ~/.config/sqio/keys.txt --sql 'select 1'
 ```
 
 SSH tunnel のオプションは CLI と設定ファイルの両方で利用できます。
+SSH 接続では `known_hosts` による host key verification を行います。
+`--ssh-known-hosts` または `ssh_tunnel.known_hosts` を省略した場合は、
+`~/.ssh/known_hosts` を使います。
 
 ```bash
 sqio exec \
@@ -119,6 +137,37 @@ sqio exec \
   --ssh-known-hosts ~/.ssh/known_hosts \
   --sql 'select 1'
 ```
+
+TUI の新規 DB 接続フォームでは password 入力はマスク表示されます。
+MySQL の DSN は driver の DSN formatter で組み立てるため、database 名や
+password に特殊文字が含まれる場合も driver の解釈に合わせて扱われます。
+
+## 実行と出力
+
+`exec` と `query` は `--format` で出力形式を選べます。
+
+```bash
+sqio exec --sql 'select 1' --format table
+sqio exec --sql 'select 1' --format json
+sqio exec --sql 'select 1' --format jsonl
+sqio exec --sql 'select 1' --format csv
+sqio exec --sql 'select 1' --format tsv
+sqio exec --sql 'select 1' --format markdown
+sqio exec --sql 'select 1' --format yaml
+```
+
+DB 接続ありの `exec` / `query` は、行を返す最後の statement を writer に
+逐次出力します。これにより、大きな結果セットでも全行をメモリに保持せずに
+出力できます。`--transaction` 使用時は commit 前に結果を出力しないため、
+従来どおり一度結果を保持してから出力します。
+
+```bash
+sqio exec --conn local --sql 'select * from users' --max-rows 1000 --format jsonl
+sqio exec --conn local --sql 'select * from users' --out users.csv --format csv
+```
+
+`--max-rows` は読み取る行数を制限します。`--max-bytes` は出力先 writer の
+byte 数を制限します。
 
 `query --pick` は `fzf` がインストールされている場合に `fzf` を使います。
 `fzf` がない場合、sqio は決定的に動作する組み込み picker にフォールバックします。
@@ -161,8 +210,15 @@ scripts/               CI and smoke test scripts
 ```bash
 gofmt -w cmd internal
 go test ./...
+go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out
 go build -o /tmp/sqio ./cmd/sqio
 markdownlint-cli2 README.md
+```
+
+coverage の概要確認:
+
+```bash
+go tool cover -func=/tmp/sqio-cover.out
 ```
 
 CI と同等の軽量チェック:

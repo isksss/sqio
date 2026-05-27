@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,20 @@ func TestLoadDefault(t *testing.T) {
 	}
 	if cfg.Query.Timeout != "30s" {
 		t.Fatalf("unexpected timeout: %s", cfg.Query.Timeout)
+	}
+}
+
+func TestTimeoutDurationAndDefaultTOML(t *testing.T) {
+	cfg := Default()
+	timeout, err := TimeoutDuration(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout.String() != "30s" {
+		t.Fatalf("unexpected timeout: %s", timeout)
+	}
+	if !strings.Contains(DefaultTOML(), `theme = "dark"`) {
+		t.Fatal("default toml missing theme")
 	}
 }
 
@@ -30,6 +45,21 @@ func TestLoadTOML(t *testing.T) {
 	}
 	if cfg.Query.Timeout != "5s" || cfg.Query.MaxRows != 10 || cfg.Query.Format != "json" {
 		t.Fatalf("unexpected query config: %+v", cfg.Query)
+	}
+}
+
+func TestLoadEnvOverrides(t *testing.T) {
+	t.Setenv("SQIO_THEME", "light")
+	t.Setenv("SQIO_EDITOR", "nvim")
+	t.Setenv("SQIO_QUERY_TIMEOUT", "5s")
+	t.Setenv("SQIO_QUERY_FORMAT", "json")
+	t.Setenv("SQIO_QUERY_MAX_ROWS", "25")
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Theme != "light" || cfg.Editor != "nvim" || cfg.Query.Timeout != "5s" || cfg.Query.Format != "json" || cfg.Query.MaxRows != 25 {
+		t.Fatalf("unexpected env config: %+v", cfg)
 	}
 }
 

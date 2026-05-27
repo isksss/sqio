@@ -94,6 +94,21 @@ name = "local"
 driver = "sqlite"
 database = "/tmp/sqio.db"
 readonly = false
+
+[[connections]]
+name = "prod"
+driver = "postgres"
+host = "db.internal"
+database = "app"
+user = "app"
+readonly = true
+
+[connections.ssh_tunnel]
+enabled = true
+host = "bastion.example.com"
+user = "deploy"
+private_key = "~/.ssh/id_ed25519"
+known_hosts = "~/.ssh/known_hosts"
 ```
 
 Encrypted passwords can be decrypted with an age identity file:
@@ -103,6 +118,8 @@ sqio exec --conn prod --age-identity ~/.config/sqio/keys.txt --sql 'select 1'
 ```
 
 SSH tunnel options are available from CLI and config:
+SSH connections verify host keys with `known_hosts`. When `--ssh-known-hosts`
+or `ssh_tunnel.known_hosts` is omitted, sqio uses `~/.ssh/known_hosts`.
 
 ```bash
 sqio exec \
@@ -114,8 +131,40 @@ sqio exec \
   --ssh-host bastion.example.com \
   --ssh-user deploy \
   --ssh-private-key ~/.ssh/id_ed25519 \
+  --ssh-known-hosts ~/.ssh/known_hosts \
   --sql 'select 1'
 ```
+
+The TUI masks password input in the inline connection form. MySQL DSNs are built
+with the driver DSN formatter, so special characters in database names and
+passwords follow the driver's parsing rules.
+
+## Execution and Output
+
+`exec` and `query` support multiple output formats via `--format`.
+
+```bash
+sqio exec --sql 'select 1' --format table
+sqio exec --sql 'select 1' --format json
+sqio exec --sql 'select 1' --format jsonl
+sqio exec --sql 'select 1' --format csv
+sqio exec --sql 'select 1' --format tsv
+sqio exec --sql 'select 1' --format markdown
+sqio exec --sql 'select 1' --format yaml
+```
+
+For database-backed `exec` / `query` runs, the final row-returning statement is
+written incrementally to the output writer. This avoids keeping the full result
+set in memory before output. When `--transaction` is used, sqio keeps the
+previous buffered result path so results are not emitted before commit.
+
+```bash
+sqio exec --conn local --sql 'select * from users' --max-rows 1000 --format jsonl
+sqio exec --conn local --sql 'select * from users' --out users.csv --format csv
+```
+
+`--max-rows` limits how many rows are read. `--max-bytes` limits bytes written
+to the output writer.
 
 `query --pick` uses `fzf` when it is installed. If `fzf` is missing,
 sqio falls back to a deterministic internal picker.
@@ -158,8 +207,15 @@ Typical checks:
 ```bash
 gofmt -w cmd internal
 go test ./...
+go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out
 go build -o /tmp/sqio ./cmd/sqio
 markdownlint-cli2 README.md
+```
+
+Coverage summary:
+
+```bash
+go tool cover -func=/tmp/sqio-cover.out
 ```
 
 Lightweight CI-equivalent checks:

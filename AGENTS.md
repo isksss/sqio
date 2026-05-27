@@ -4,7 +4,8 @@
 
 `sqio` は Go 製の TUI/CLI 統合データベースクライアントです。
 MySQL、PostgreSQL、SQLite を対象に、SQL 実行、対話的クエリ入力、
-SQL format/lint、メタデータ取得、ER 図出力、履歴管理を提供します。
+ストリーミング出力、SQL format/lint、メタデータ取得、ER 図出力、
+履歴管理を提供します。
 
 CLI が主要インターフェースで、TUI は同じ service 層を利用する
 フロントエンドとして扱います。
@@ -39,11 +40,18 @@ scripts/               CI and smoke test scripts
 - DB driver 固有処理は `internal/db` に集約する。
 - 既存の標準 library と導入済み依存を優先し、依存追加は必要最小限にする。
 - 秘密情報、DSN、`.env`、credential を出力しない。
+- SSH tunnel は `known_hosts` による host key verification を前提にする。
+- TUI の password 入力は必ずマスク表示する。
+- DB 接続ありの `exec` / `query` は、可能な限り結果行を逐次出力し、
+  大きな結果セットを全件メモリ保持しない。`--transaction` 時は commit 前出力を避ける。
+- MySQL DSN は `go-sql-driver/mysql` の `Config.FormatDSN()` など
+  driver 公式の組み立て API を優先する。
 
 ## よく使うコマンド
 
 ```bash
 go test ./...
+go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out
 go build -o /tmp/sqio ./cmd/sqio
 gofmt -w cmd internal
 bash scripts/ci-check.sh
@@ -69,8 +77,10 @@ markdownlint、PostgreSQL/MySQL smoke test を実行します。
 ## 検証ルール
 
 - Go 変更時は最低限 `go test ./...` を実行する。
+- coverage を確認する場合は
+  `go test ./... -covermode=atomic -coverprofile=/tmp/sqio-cover.out` を使う。
 - CLI や build に関わる変更時は `go build -o /tmp/sqio ./cmd/sqio` も実行する。
-- README 変更時は `markdownlint-cli2 README.md` または
+- README 変更時は `markdownlint-cli2 README.md README.en.md` または
   `bash scripts/ci-check.sh` で確認する。
 - PostgreSQL/MySQL 連携に触れた場合は `scripts/smoke-db.sh` を実行する。
 - 実行できない検証がある場合は、理由と未検証範囲を明記する。
