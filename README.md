@@ -76,8 +76,11 @@ go build -o /tmp/sqio ./cmd/sqio
 
 ## ドキュメント
 
+- [ドキュメント一覧](docs/README.md)
 - [設定](docs/config.md)
+- [接続](docs/connection.md)
 - [実行と出力](docs/execution.md)
 - [メタデータ](docs/metadata.md)
 - [Lint ルール](docs/lint.md)
+- [テスト](docs/testing.md)
 - [開発](docs/development.md)
