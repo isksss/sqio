@@ -20,6 +20,7 @@ type metadataOptions struct {
 	format    string
 	out       string
 	table     string
+	schema    string
 	clipboard bool
 }
 
@@ -36,7 +37,7 @@ func newTablesCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
 			if err != nil {
 				return err
 			}
@@ -55,6 +56,49 @@ func newTablesCommand() *cobra.Command {
 			}
 			for _, table := range tables {
 				fmt.Fprintln(w, table.Name)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&opts.format, "format", "table", "output format")
+	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
+	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
+	return cmd
+}
+
+// newSchemasCommand creates the command that lists schemas/databases.
+func newSchemasCommand() *cobra.Command {
+	var opts metadataOptions
+	cmd := &cobra.Command{
+		Use:   "schemas",
+		Short: "list schemas",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			schemas, err := metadata.Schemas(ctx)
+			if err != nil {
+				return &CommandError{Type: "metadata", Message: err.Error(), Code: ExitInternal}
+			}
+			w, closeOut, err := outputTarget(cmd.OutOrStdout(), opts.out)
+			if err != nil {
+				return err
+			}
+			defer closeOut()
+			if opts.format == "json" {
+				return json.NewEncoder(w).Encode(schemas)
+			}
+			for _, schema := range schemas {
+				fmt.Fprintln(w, schema)
 			}
 			return nil
 		},
@@ -81,7 +125,7 @@ func newColumnsCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
 			if err != nil {
 				return err
 			}
@@ -124,6 +168,61 @@ func newColumnsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.table, "table", "", "table name")
 	cmd.Flags().StringVar(&opts.format, "format", "table", "output format")
 	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
+	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
+	return cmd
+}
+
+// newIndexesCommand creates the command that lists indexes for one table.
+func newIndexesCommand() *cobra.Command {
+	var opts metadataOptions
+	cmd := &cobra.Command{
+		Use:   "indexes",
+		Short: "list indexes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			if opts.table == "" {
+				return &CommandError{Type: "input", Message: "--table is required", Code: ExitInternal}
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			indexes, err := metadata.Indexes(ctx, opts.table)
+			if err != nil {
+				return &CommandError{Type: "metadata", Message: err.Error(), Code: ExitInternal}
+			}
+			w, closeOut, err := outputTarget(cmd.OutOrStdout(), opts.out)
+			if err != nil {
+				return err
+			}
+			defer closeOut()
+			if opts.format == "json" {
+				return json.NewEncoder(w).Encode(indexes)
+			}
+			for _, index := range indexes {
+				flags := "nonunique"
+				if index.Unique {
+					flags = "unique"
+				}
+				if index.Primary {
+					flags += " primary"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\n", index.Name, strings.Join(index.Columns, ","), flags)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&opts.table, "table", "", "table name")
+	cmd.Flags().StringVar(&opts.format, "format", "table", "output format")
+	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
 	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
 	return cmd
 }
@@ -144,7 +243,7 @@ func newDDLCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
 			if err != nil {
 				return err
 			}
@@ -164,6 +263,7 @@ func newDDLCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.table, "table", "", "table name")
 	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
 	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
 	return cmd
 }
@@ -171,7 +271,7 @@ func newDDLCommand() *cobra.Command {
 // newSchemaCommand creates the schema command group.
 func newSchemaCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "schema", Short: "schema operations"}
-	cmd.AddCommand(newSchemaExportCommand())
+	cmd.AddCommand(newSchemaExportCommand(), newSchemaDiffCommand())
 	return cmd
 }
 
@@ -188,7 +288,7 @@ func newSchemaExportCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
 			if err != nil {
 				return err
 			}
@@ -214,6 +314,7 @@ func newSchemaExportCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.format, "format", "json", "output format")
 	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
 	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
 	return cmd
 }
@@ -234,7 +335,7 @@ func newERCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			metadata, cleanup, err := metadataService(ctx, cfg, opts.connectionOptions)
+			metadata, cleanup, err := metadataServiceWithSchema(ctx, cfg, opts.connectionOptions, opts.schema)
 			if err != nil {
 				return err
 			}
@@ -260,6 +361,7 @@ func newERCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.format, "format", "mermaid", "output format")
 	cmd.Flags().StringVar(&opts.out, "out", "", "output file")
+	cmd.Flags().StringVar(&opts.schema, "schema", "", "schema/database name")
 	cmd.Flags().BoolVar(&opts.clipboard, "clipboard", false, "copy ER diagram to clipboard")
 	addConnectionFlags(cmd.Flags(), &opts.connectionOptions)
 	return cmd
@@ -268,6 +370,10 @@ func newERCommand() *cobra.Command {
 // metadataService prepares the metadata backend and cleanup function for schema
 // commands.
 func metadataService(ctx context.Context, cfg config.Config, opts connectionOptions) (service.MetadataService, func(), error) {
+	return metadataServiceWithSchema(ctx, cfg, opts, "")
+}
+
+func metadataServiceWithSchema(ctx context.Context, cfg config.Config, opts connectionOptions, schemaName string) (service.MetadataService, func(), error) {
 	driver, dsn, cleanup, err := prepareConnection(ctx, cfg, opts)
 	if err != nil {
 		return service.MetadataService{}, nil, err
@@ -278,7 +384,7 @@ func metadataService(ctx context.Context, cfg config.Config, opts connectionOpti
 	if driver == "" && dsn == "" {
 		return service.NewMetadataService(), cleanup, nil
 	}
-	return service.NewConnectedMetadataService(driver, dsn), cleanup, nil
+	return service.NewConnectedMetadataServiceWithSchema(driver, dsn, schemaName), cleanup, nil
 }
 
 // outputTarget returns either the command writer or a newly created output file
