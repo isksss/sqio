@@ -16,6 +16,7 @@ type lintOptions struct {
 	sql     string
 	file    string
 	format  string
+	dialect string
 	level   string
 	enable  []string
 	disable []string
@@ -35,11 +36,14 @@ func newLintCommand() *cobra.Command {
 			if opts.level == "" {
 				opts.level = cfg.Lint.Level
 			}
+			if opts.dialect == "" {
+				opts.dialect = cfg.Formatter.Dialect
+			}
 			sql, err := query.Read(query.Source{SQL: opts.sql, File: opts.file, In: os.Stdin})
 			if err != nil {
 				return &CommandError{Type: "input", Message: err.Error(), Code: 2}
 			}
-			result := linter.Lint(sql, linter.Options{Level: opts.level, Enable: opts.enable, Disable: opts.disable})
+			result := linter.Lint(sql, linter.Options{Dialect: opts.dialect, Level: opts.level, Enable: opts.enable, Disable: opts.disable})
 			if opts.format == "json" {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
 					return &CommandError{Type: "output", Message: err.Error(), Code: 2}
@@ -58,6 +62,7 @@ func newLintCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.sql, "sql", "", "SQL string")
 	cmd.Flags().StringVar(&opts.file, "file", "", "SQL file")
 	cmd.Flags().StringVar(&opts.format, "format", "human", "output format")
+	cmd.Flags().StringVar(&opts.dialect, "dialect", "", "SQL dialect")
 	cmd.Flags().StringVar(&opts.level, "level", "", "minimum severity")
 	cmd.Flags().StringSliceVar(&opts.enable, "enable", nil, "enable lint rules")
 	cmd.Flags().StringSliceVar(&opts.disable, "disable", nil, "disable lint rules")

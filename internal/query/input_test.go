@@ -34,6 +34,13 @@ func TestStatementsIgnoresSemicolonInLiteralAndComment(t *testing.T) {
 	}
 }
 
+func TestStatementsIgnoresSemicolonInQuotedIdentifiersAndBlockComments(t *testing.T) {
+	got := Statements("select `a;b` from t; /* ; */\nselect \"c;d\" from t;")
+	if len(got) != 2 {
+		t.Fatalf("want 2 statements, got %#v", got)
+	}
+}
+
 // TestStatementsWithLine verifies the behavior covered by this test helper or case.
 func TestStatementsWithLine(t *testing.T) {
 	got := StatementsWithLine("\nselect 1;\n\n-- comment\nselect 2;")
@@ -120,6 +127,15 @@ func TestDangerousIgnoresWhereInComment(t *testing.T) {
 	}
 }
 
+func TestDangerousUsesTokens(t *testing.T) {
+	if danger, ok := Dangerous("delete from users where_note = 'not a where clause'"); !ok || danger.Type != "delete_without_where" {
+		t.Fatalf("expected token-aware missing where, got %+v ok=%v", danger, ok)
+	}
+	if danger, ok := Dangerous("update users set note = 'where hidden'"); !ok || danger.Type != "update_without_where" {
+		t.Fatalf("expected literal where to be ignored, got %+v ok=%v", danger, ok)
+	}
+}
+
 // TestMutating verifies the behavior covered by this test helper or case.
 func TestMutating(t *testing.T) {
 	if !Mutating("insert into users (name) values ('a')") {
@@ -143,5 +159,56 @@ func TestCommentlessTextPreservesLiteral(t *testing.T) {
 	got := CommentlessText("select 'a*b' /* hidden */")
 	if !strings.Contains(got, "'a*b'") || strings.Contains(got, "hidden") {
 		t.Fatalf("unexpected commentless text: %q", got)
+	}
+}
+
+func TestAnalysisTextScrubsQuotedTextAndComments(t *testing.T) {
+	sql := "select 'delete' as x, \"update\" as y, `drop` as z -- truncate\nfrom t /* drop database x */"
+	got := AnalysisText(sql)
+	for _, hidden := range []string{"delete", "update", "drop", "truncate", "database"} {
+		if strings.Contains(strings.ToLower(got), hidden) {
+			t.Fatalf("expected %q to be scrubbed from %q", hidden, got)
+		}
+	}
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("expected newline preservation: %q", got)
+	}
+}
+
+func TestTokens(t *testing.T) {
+	tokens := Tokens("select id from users where name = 'drop database prod'")
+	if !HasTokenSequence(tokens, "select", "id", "from", "users") || !HasToken(tokens, "where") {
+		t.Fatalf("unexpected tokens: %#v", tokens)
+	}
+	if HasToken(tokens, "drop") || HasToken(tokens, "database") {
+		t.Fatalf("literal keywords should be scrubbed: %#v", tokens)
+	}
+}
+
+func TestReadNoInput(t *testing.T) {
+	got, err := Read(Source{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty SQL, got %q", got)
+	}
+}
+
+func TestStdinHasDataWithFile(t *testing.T) {
+	oldStdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = oldStdin })
+	path := filepath.Join(t.TempDir(), "stdin.sql")
+	if err := os.WriteFile(path, []byte("select 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	os.Stdin = file
+	if !stdinHasData() || !hasInput(os.Stdin) {
+		t.Fatal("expected file-backed stdin to have data")
 	}
 }

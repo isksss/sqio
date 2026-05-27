@@ -25,6 +25,7 @@ type ExecOptions struct {
 	Driver      string
 	DSN         string
 	Explain     bool
+	Analyze     bool
 	Transaction bool
 }
 
@@ -43,7 +44,7 @@ func (Executor) Exec(ctx context.Context, sql string, opts ExecOptions) (output.
 	}
 	if opts.Driver != "" || opts.DSN != "" {
 		return db.Execute(ctx, db.Config{Driver: opts.Driver, DSN: opts.DSN}, sql, db.ExecuteOptions{
-			MaxRows: opts.MaxRows, Explain: opts.Explain, Transaction: opts.Transaction,
+			MaxRows: opts.MaxRows, Explain: opts.Explain, Analyze: opts.Analyze, Transaction: opts.Transaction,
 		})
 	}
 	if len(statements) == 1 && strings.EqualFold(statements[0], "select 1") {
@@ -72,7 +73,7 @@ func (Executor) Write(ctx context.Context, w io.Writer, sql string, opts ExecOpt
 	}
 	if opts.Driver != "" || opts.DSN != "" {
 		return db.ExecuteToWriter(ctx, db.Config{Driver: opts.Driver, DSN: opts.DSN}, sql, db.ExecuteOptions{
-			MaxRows: opts.MaxRows, Explain: opts.Explain, Transaction: opts.Transaction,
+			MaxRows: opts.MaxRows, Explain: opts.Explain, Analyze: opts.Analyze, Transaction: opts.Transaction,
 		}, w, opts.Format)
 	}
 	result, err := Executor{}.Exec(ctx, sql, opts)
