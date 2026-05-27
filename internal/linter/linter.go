@@ -4,6 +4,7 @@ package linter
 import (
 	"strings"
 
+	"github.com/isksss/sqio/internal/dbdriver"
 	"github.com/isksss/sqio/internal/query"
 )
 
@@ -156,20 +157,20 @@ func hasLimitWithoutOrder(line string) bool {
 }
 
 func dialectIssues(dialect, normalized, commentless string, tokens []string, line int) []Issue {
-	switch strings.ToLower(dialect) {
-	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
+	switch {
+	case dbdriver.IsPostgresFamily(dialect):
 		return postgresDialectIssues(normalized, commentless, line)
-	case "mysql", "mariadb", "tidb":
+	case dbdriver.IsMySQLFamily(dialect):
 		return mysqlDialectIssues(normalized, commentless, line)
-	case "sqlite", "sqlite3":
+	case dbdriver.IsSQLite(dialect):
 		return sqliteDialectIssues(normalized, commentless, line)
-	case "sqlserver", "mssql":
+	case dbdriver.IsSQLServer(dialect):
 		return sqlServerDialectIssues(normalized, commentless, tokens, line)
-	case "oracle":
+	case strings.EqualFold(dialect, dbdriver.DriverOracle):
 		return oracleDialectIssues(normalized, commentless, tokens, line)
-	case "duckdb":
+	case strings.EqualFold(dialect, dbdriver.DriverDuckDB):
 		return duckDBDialectIssues(normalized, tokens, line)
-	case "clickhouse", "ch":
+	case dbdriver.IsClickHouse(dialect):
 		return clickHouseDialectIssues(normalized, tokens, line)
 	default:
 		return nil

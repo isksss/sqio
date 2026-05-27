@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/isksss/sqio/internal/dbdriver"
 )
 
 // SchemaInfo is database metadata collected from a live connection.
@@ -49,19 +51,19 @@ func Metadata(ctx context.Context, cfg Config) (SchemaInfo, error) {
 	}
 	defer conn.Close()
 	switch driver {
-	case "sqlite":
+	case dbdriver.DriverSQLite:
 		return sqliteMetadata(ctx, conn)
-	case "duckdb":
+	case dbdriver.DriverDuckDB:
 		return duckDBMetadata(ctx, conn, cfg.Schema)
-	case "mysql":
+	case dbdriver.DriverMySQL:
 		return mysqlMetadata(ctx, conn, cfg.Schema)
-	case "pgx":
+	case dbdriver.DriverPGX:
 		return postgresMetadata(ctx, conn, cfg.Schema)
-	case "sqlserver":
+	case dbdriver.DriverSQLServer:
 		return sqlServerMetadata(ctx, conn, cfg.Schema)
-	case "oracle":
+	case dbdriver.DriverOracle:
 		return oracleMetadata(ctx, conn, cfg.Schema)
-	case "clickhouse":
+	case dbdriver.DriverClickHouse:
 		return clickHouseMetadata(ctx, conn, cfg.Schema)
 	default:
 		return SchemaInfo{}, fmt.Errorf("unsupported metadata driver: %s", cfg.Driver)
@@ -76,7 +78,7 @@ func Schemas(ctx context.Context, cfg Config) ([]string, error) {
 	}
 	defer conn.Close()
 	switch driver {
-	case "sqlite":
+	case dbdriver.DriverSQLite:
 		rows, err := conn.QueryContext(ctx, `pragma database_list`)
 		if err != nil {
 			return nil, err
@@ -92,17 +94,17 @@ func Schemas(ctx context.Context, cfg Config) ([]string, error) {
 			names = append(names, name)
 		}
 		return names, rows.Err()
-	case "duckdb":
+	case dbdriver.DriverDuckDB:
 		return scanSchemaNames(ctx, conn, `select schema_name from information_schema.schemata order by schema_name`)
-	case "mysql":
+	case dbdriver.DriverMySQL:
 		return scanSchemaNames(ctx, conn, `select schema_name from information_schema.schemata order by schema_name`)
-	case "pgx":
+	case dbdriver.DriverPGX:
 		return scanSchemaNames(ctx, conn, `select nspname from pg_catalog.pg_namespace where nspname not like 'pg_%' and nspname <> 'information_schema' order by nspname`)
-	case "sqlserver":
+	case dbdriver.DriverSQLServer:
 		return scanSchemaNames(ctx, conn, `select schema_name from information_schema.schemata order by schema_name`)
-	case "oracle":
+	case dbdriver.DriverOracle:
 		return scanSchemaNames(ctx, conn, `select username from all_users order by username`)
-	case "clickhouse":
+	case dbdriver.DriverClickHouse:
 		return scanSchemaNames(ctx, conn, `select name from system.databases order by name`)
 	default:
 		return nil, fmt.Errorf("unsupported metadata driver: %s", cfg.Driver)

@@ -315,11 +315,15 @@ bash scripts/ci-check.sh
 
 ## Smoke Test
 
-The repository includes Docker Compose services for PostgreSQL and MySQL.
+The repository includes Docker Compose services for PostgreSQL, MySQL,
+SQL Server, Oracle, ClickHouse, an OpenSSH server for tunnel checks, and a
+sqio test runner. SQLite and DuckDB are tested with temporary database files
+inside the runner.
 
 ```bash
-docker compose up -d postgres mysql
-bash scripts/smoke-db.sh
+docker compose --profile test build sqio-test
+docker compose up -d postgres mysql sqlserver oracle clickhouse ssh
+docker compose --profile test run --rm sqio-test bash scripts/smoke-db.sh
 docker compose down
 ```
 
@@ -328,3 +332,7 @@ To run formatting, unit tests, build, README lint, and DB smoke tests together:
 ```bash
 bash scripts/test-all.sh
 ```
+
+SQL Server accepts its EULA through `ACCEPT_EULA=Y` in Compose. Oracle may take
+longer on the first pull and startup. The SSH smoke test connects to PostgreSQL
+through the Docker OpenSSH service.

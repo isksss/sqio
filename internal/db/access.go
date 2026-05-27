@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/isksss/sqio/internal/dbdriver"
 )
 
 // RoleInfo describes a database role or user.
@@ -34,11 +36,11 @@ func Roles(ctx context.Context, cfg Config) ([]RoleInfo, error) {
 	}
 	defer conn.Close()
 	switch driver {
-	case "sqlite":
+	case dbdriver.DriverSQLite:
 		return []RoleInfo{}, nil
-	case "pgx":
+	case dbdriver.DriverPGX:
 		return postgresRoles(ctx, conn)
-	case "mysql":
+	case dbdriver.DriverMySQL:
 		return mysqlRoles(ctx, conn)
 	default:
 		return nil, fmt.Errorf("unsupported driver: %s", driver)
@@ -54,11 +56,11 @@ func Grants(ctx context.Context, cfg Config, role string) ([]GrantInfo, error) {
 	}
 	defer conn.Close()
 	switch driver {
-	case "sqlite":
+	case dbdriver.DriverSQLite:
 		return []GrantInfo{}, nil
-	case "pgx":
+	case dbdriver.DriverPGX:
 		return postgresGrants(ctx, conn, role)
-	case "mysql":
+	case dbdriver.DriverMySQL:
 		if strings.TrimSpace(role) != "" {
 			return nil, fmt.Errorf("mysql grants supports current user only")
 		}

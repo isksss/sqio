@@ -6,6 +6,7 @@ import (
 
 	"github.com/isksss/sqio/internal/config"
 	"github.com/isksss/sqio/internal/db"
+	"github.com/isksss/sqio/internal/dbdriver"
 	"github.com/isksss/sqio/internal/secret"
 	"github.com/isksss/sqio/internal/tunnel"
 )
@@ -249,18 +250,5 @@ func firstNonZero(values ...int) int {
 
 // defaultPort returns the conventional TCP port for known database drivers.
 func defaultPort(driver string) int {
-	switch driver {
-	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
-		return 5432
-	case "mysql", "mariadb", "tidb":
-		return 3306
-	case "sqlserver", "mssql":
-		return 1433
-	case "oracle":
-		return 1521
-	case "clickhouse", "ch":
-		return 9000
-	default:
-		return 0
-	}
+	return dbdriver.DefaultPort(driver)
 }

@@ -5,8 +5,10 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/isksss/sqio/internal/dbdriver"
 	goora "github.com/sijms/go-ora/v2"
 )
 
@@ -28,23 +30,23 @@ func DSN(conn Connection) (string, error) {
 	if conn.DSN != "" {
 		return conn.DSN, nil
 	}
-	switch conn.Driver {
-	case "sqlite", "sqlite3":
+	switch {
+	case dbdriver.IsSQLite(conn.Driver):
 		if conn.Database == "" {
 			return "", fmt.Errorf("sqlite requires database path")
 		}
 		return conn.Database, nil
-	case "duckdb":
+	case strings.EqualFold(conn.Driver, dbdriver.DriverDuckDB):
 		if conn.Database == "" {
 			return "", fmt.Errorf("duckdb requires database path")
 		}
 		return conn.Database, nil
-	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
+	case dbdriver.IsPostgresFamily(conn.Driver):
 		if conn.Host == "" {
 			conn.Host = "localhost"
 		}
 		if conn.Port == 0 {
-			conn.Port = 5432
+			conn.Port = dbdriver.DefaultPort(conn.Driver)
 		}
 		if conn.SSLMode == "" {
 			conn.SSLMode = "disable"
@@ -61,12 +63,12 @@ func DSN(conn Connection) (string, error) {
 		q.Set("sslmode", conn.SSLMode)
 		u.RawQuery = q.Encode()
 		return u.String(), nil
-	case "mysql", "mariadb", "tidb":
+	case dbdriver.IsMySQLFamily(conn.Driver):
 		if conn.Host == "" {
 			conn.Host = "localhost"
 		}
 		if conn.Port == 0 {
-			conn.Port = 3306
+			conn.Port = dbdriver.DefaultPort(conn.Driver)
 		}
 		cfg := mysql.NewConfig()
 		cfg.User = conn.User
@@ -75,12 +77,12 @@ func DSN(conn Connection) (string, error) {
 		cfg.Addr = net.JoinHostPort(conn.Host, strconv.Itoa(conn.Port))
 		cfg.DBName = conn.Database
 		return cfg.FormatDSN(), nil
-	case "sqlserver", "mssql":
+	case dbdriver.IsSQLServer(conn.Driver):
 		if conn.Host == "" {
 			conn.Host = "localhost"
 		}
 		if conn.Port == 0 {
-			conn.Port = 1433
+			conn.Port = dbdriver.DefaultPort(conn.Driver)
 		}
 		u := url.URL{
 			Scheme: "sqlserver",
@@ -95,23 +97,23 @@ func DSN(conn Connection) (string, error) {
 		}
 		u.RawQuery = q.Encode()
 		return u.String(), nil
-	case "oracle":
+	case strings.EqualFold(conn.Driver, dbdriver.DriverOracle):
 		if conn.Host == "" {
 			conn.Host = "localhost"
 		}
 		if conn.Port == 0 {
-			conn.Port = 1521
+			conn.Port = dbdriver.DefaultPort(conn.Driver)
 		}
 		if conn.Database == "" {
 			return "", fmt.Errorf("oracle requires service name")
 		}
 		return goora.BuildUrl(conn.Host, conn.Port, conn.Database, conn.User, conn.Password, nil), nil
-	case "clickhouse", "ch":
+	case dbdriver.IsClickHouse(conn.Driver):
 		if conn.Host == "" {
 			conn.Host = "localhost"
 		}
 		if conn.Port == 0 {
-			conn.Port = 9000
+			conn.Port = dbdriver.DefaultPort(conn.Driver)
 		}
 		u := url.URL{
 			Scheme: "clickhouse",

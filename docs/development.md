@@ -38,11 +38,14 @@ bash scripts/ci-check.sh
 
 ## Smoke Test
 
-このリポジトリには PostgreSQL と MySQL の Docker Compose サービスが含まれています。
+このリポジトリには PostgreSQL、MySQL、SQL Server、Oracle、ClickHouse、
+SSH tunnel 検証用 OpenSSH、sqio 実行用 runner の Docker Compose サービスが
+含まれています。SQLite と DuckDB は runner 内の一時DBファイルで検証します。
 
 ```bash
-docker compose up -d postgres mysql
-bash scripts/smoke-db.sh
+docker compose --profile test build sqio-test
+docker compose up -d postgres mysql sqlserver oracle clickhouse ssh
+docker compose --profile test run --rm sqio-test bash scripts/smoke-db.sh
 docker compose down
 ```
 
@@ -51,3 +54,7 @@ format、unit test、build、README/docs lint、DB smoke test をまとめて実
 ```bash
 bash scripts/test-all.sh
 ```
+
+SQL Server は compose の `ACCEPT_EULA=Y` で EULA に同意します。Oracle は
+初回 pull と起動に時間がかかる場合があります。SSH smoke test は Docker 内の
+OpenSSH service 経由で PostgreSQL へ接続します。
