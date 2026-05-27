@@ -18,6 +18,19 @@ func TestDSNSQLite(t *testing.T) {
 	}
 }
 
+func TestDSNDuckDB(t *testing.T) {
+	got, err := DSN(Connection{Driver: "duckdb", Database: "warehouse.duckdb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "warehouse.duckdb" {
+		t.Fatalf("unexpected dsn: %s", got)
+	}
+	if _, err := DSN(Connection{Driver: "duckdb"}); err == nil {
+		t.Fatal("expected duckdb database error")
+	}
+}
+
 // TestDSNPostgres verifies the behavior covered by this test helper or case.
 func TestDSNPostgres(t *testing.T) {
 	got, err := DSN(Connection{Driver: "postgres", Host: "localhost", Database: "app", User: "app", Password: "secret", SSLMode: "require"})
@@ -37,6 +50,57 @@ func TestDSNMySQL(t *testing.T) {
 	}
 	if got != "app:secret@tcp(localhost:3306)/app" {
 		t.Fatalf("unexpected dsn: %s", got)
+	}
+}
+
+func TestDSNCompatibleAliases(t *testing.T) {
+	got, err := DSN(Connection{Driver: "cockroach", Host: "db", Database: "app", User: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "postgres://app") || !strings.Contains(got, "sslmode=disable") {
+		t.Fatalf("unexpected cockroach dsn: %s", got)
+	}
+	got, err = DSN(Connection{Driver: "mariadb", Host: "db", Database: "app", User: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "tcp(db:3306)/app") {
+		t.Fatalf("unexpected mariadb dsn: %s", got)
+	}
+	got, err = DSN(Connection{Driver: "tidb", Host: "db", Database: "app", User: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "tcp(db:3306)/app") {
+		t.Fatalf("unexpected tidb dsn: %s", got)
+	}
+}
+
+func TestDSNAdditionalDrivers(t *testing.T) {
+	got, err := DSN(Connection{Driver: "sqlserver", Host: "db", Database: "app", User: "sa", Password: "sec@ret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "sqlserver://sa:sec%40ret@db:1433?") || !strings.Contains(got, "database=app") {
+		t.Fatalf("unexpected sqlserver dsn: %s", got)
+	}
+	got, err = DSN(Connection{Driver: "oracle", Host: "db", Database: "XEPDB1", User: "app", Password: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "oracle://app:secret@db:1521/XEPDB1") {
+		t.Fatalf("unexpected oracle dsn: %s", got)
+	}
+	got, err = DSN(Connection{Driver: "clickhouse", Host: "db", Database: "analytics", User: "default", Password: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "clickhouse://default:secret@db:9000/analytics" {
+		t.Fatalf("unexpected clickhouse dsn: %s", got)
+	}
+	if _, err := DSN(Connection{Driver: "oracle"}); err == nil {
+		t.Fatal("expected oracle service name error")
 	}
 }
 

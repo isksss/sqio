@@ -11,6 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type tuiProgram interface {
+	Run() (tea.Model, error)
+}
+
+var newTUIProgram = func(model tea.Model) tuiProgram {
+	return tea.NewProgram(model, tea.WithAltScreen())
+}
+
 // newTUICommand creates the command that launches the Bubble Tea interface.
 func newTUICommand() *cobra.Command {
 	var opts connectionOptions
@@ -40,7 +48,7 @@ func newTUICommand() *cobra.Command {
 				defer execCleanup()
 			}
 			execOpts := service.ExecOptions{Format: cfg.Query.Format, MaxRows: cfg.Query.MaxRows, Driver: driver, DSN: dsn}
-			program := tea.NewProgram(tui.NewWithServices(cfg, metadata, service.Executor{}, execOpts, global.noColor), tea.WithAltScreen())
+			program := newTUIProgram(tui.NewWithServices(cfg, metadata, service.Executor{}, execOpts, global.noColor))
 			if _, err := program.Run(); err != nil {
 				return &CommandError{Type: "tui", Message: err.Error(), Code: ExitInternal}
 			}

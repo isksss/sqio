@@ -37,6 +37,17 @@ func TestLintWhereInCommentDoesNotHideUnsafeDelete(t *testing.T) {
 	}
 }
 
+func TestLintWhereTokenMustBeKeyword(t *testing.T) {
+	result := Lint("delete from users where_note = 'not real where'")
+	if len(result.Issues) != 1 || result.Issues[0].Rule != "delete-without-where" {
+		t.Fatalf("expected token-aware delete-without-where, got %#v", result.Issues)
+	}
+	result = Lint("update users set note = 'where hidden'")
+	if len(result.Issues) != 1 || result.Issues[0].Rule != "update-without-where" {
+		t.Fatalf("expected token-aware update-without-where, got %#v", result.Issues)
+	}
+}
+
 // TestLintAllowsMultilineWhere verifies the behavior covered by this test helper or case.
 func TestLintAllowsMultilineWhere(t *testing.T) {
 	result := Lint("delete from users\nwhere id = 1;\nupdate users\nset name = 'alice'\nwhere id = 1;")
@@ -121,5 +132,90 @@ func TestLintKeywordCaseOptIn(t *testing.T) {
 	result := Lint("select id from users", Options{Enable: []string{"keyword-case"}, Level: "info"})
 	if len(result.Issues) != 1 || result.Issues[0].Rule != "keyword-case" {
 		t.Fatalf("expected keyword-case issue, got %#v", result.Issues)
+	}
+}
+
+func TestLintDialectRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		dialect string
+		rules   []string
+	}{
+		{
+			name:    "postgres rejects mysql syntax",
+			sql:     "select `id` from users limit 10,20",
+			dialect: "postgres",
+			rules:   []string{"postgres-backtick-identifier", "postgres-limit-offset"},
+		},
+		{
+			name:    "mysql rejects ilike and warns returning",
+			sql:     "update users set name = 'a' where name ilike 'a%' returning id",
+			dialect: "mysql",
+			rules:   []string{"mysql-ilike", "mysql-returning"},
+		},
+		{
+			name:    "sqlite rejects for update and ilike",
+			sql:     "select id from users where name ilike 'a%' for update",
+			dialect: "sqlite",
+			rules:   []string{"sqlite-ilike", "sqlite-for-update"},
+		},
+		{
+			name:    "sqlserver rejects postgres mysql syntax",
+			sql:     "select `id` from users where name ilike 'a%' limit 10 returning id",
+			dialect: "sqlserver",
+			rules:   []string{"sqlserver-backtick-identifier", "sqlserver-ilike", "sqlserver-limit", "sqlserver-returning"},
+		},
+		{
+			name:    "oracle rejects mysql postgres syntax",
+			sql:     "select `id` from users where name ilike 'a%' limit 10",
+			dialect: "oracle",
+			rules:   []string{"oracle-backtick-identifier", "oracle-ilike", "oracle-limit"},
+		},
+		{
+			name:    "duckdb rejects locking syntax",
+			sql:     "select id from users for update; show tables",
+			dialect: "duckdb",
+			rules:   []string{"duckdb-for-update", "duckdb-show-tables"},
+		},
+		{
+			name:    "clickhouse rejects returning locking and row update",
+			sql:     "update users set name = 'a' where id = 1 returning id; select id from users for update",
+			dialect: "clickhouse",
+			rules:   []string{"clickhouse-mutation", "clickhouse-returning", "clickhouse-for-update"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Lint(tt.sql, Options{Dialect: tt.dialect, Level: "info"})
+			got := map[string]bool{}
+			for _, issue := range result.Issues {
+				got[issue.Rule] = true
+			}
+			for _, rule := range tt.rules {
+				if !got[rule] {
+					t.Fatalf("expected %s in %#v", rule, result.Issues)
+				}
+			}
+		})
+	}
+}
+
+func TestLintDialectRulesCanBeDisabled(t *testing.T) {
+	result := Lint("select `id` from users", Options{Dialect: "postgres", Disable: []string{"postgres-backtick-identifier"}})
+	if len(result.Issues) != 0 {
+		t.Fatalf("expected disabled dialect issue, got %#v", result.Issues)
+	}
+}
+
+func TestDialectHelpers(t *testing.T) {
+	if hasMySQLLimitOffset("select id from users limit 10") {
+		t.Fatal("expected standard limit not to be mysql offset syntax")
+	}
+	if !hasMySQLLimitOffset("select id from users limit 10,20") {
+		t.Fatal("expected mysql limit offset syntax")
+	}
+	if issues := dialectIssues("unknown", "select 1", "select 1", []string{"select", "1"}, 1); len(issues) != 0 {
+		t.Fatalf("expected no unknown dialect issues, got %#v", issues)
 	}
 }

@@ -2,8 +2,9 @@
 package formatter
 
 import (
-	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Options controls SQL formatting behavior requested by CLI flags or config.
@@ -22,93 +23,229 @@ var keywords = []string{
 	"select", "from", "where", "insert", "into", "values", "update", "set", "delete",
 	"join", "left", "right", "inner", "outer", "on", "group", "by", "order", "limit",
 	"having", "returning", "create", "table", "alter", "drop", "and", "or", "as",
+	"distinct", "union", "all", "offset", "fetch", "for", "ilike", "with", "case",
+	"when", "then", "else", "end",
 }
 
-// clausePatterns identifies major SQL clauses that should start on their own
-// line after whitespace normalization.
-var clausePatterns = []string{
-	`\bfrom\b`,
-	`\bwhere\b`,
-	`\bgroup\s+by\b`,
-	`\border\s+by\b`,
-	`\bhaving\b`,
-	`\blimit\b`,
-	`\breturning\b`,
-}
+var keywordSet = makeKeywordSet(keywords)
 
 // Format returns a normalized SQL string using sqio's conservative formatter.
-// It keeps comments on their original lines, changes keyword case when asked,
-// and appends a trailing newline for stable CLI and file output.
+// It tokenizes SQL before changing keyword/identifier case, so comments and
+// literal contents are not modified.
 func Format(sql string, opts Options) string {
-	formatted := normalizeSpacePreservingLines(strings.TrimSpace(sql))
-	for _, keyword := range keywords {
-		replacement := keyword
-		if strings.EqualFold(opts.KeywordCase, "upper") {
-			replacement = strings.ToUpper(keyword)
-		}
-		formatted = replaceWord(formatted, keyword, replacement)
-	}
-	for _, pattern := range clausePatterns {
-		formatted = newlineBeforeClause(formatted, pattern)
-	}
-	formatted = indentContinuation(formatted, opts.Indent)
+	formatted := renderTokens(lex(strings.TrimSpace(sql)), opts)
 	if formatted != "" && !strings.HasSuffix(formatted, "\n") {
 		formatted += "\n"
 	}
 	return formatted
 }
 
-// normalizeSpacePreservingLines collapses repeated whitespace within code
-// lines while leaving full-line SQL comments untouched.
-func normalizeSpacePreservingLines(input string) string {
-	lines := strings.Split(input, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "--") {
-			continue
+type tokenKind int
+
+const (
+	tokenWord tokenKind = iota
+	tokenPunct
+	tokenLiteral
+	tokenComment
+)
+
+type token struct {
+	kind tokenKind
+	text string
+}
+
+func lex(sql string) []token {
+	tokens := []token{}
+	for i := 0; i < len(sql); {
+		r, width := utf8.DecodeRuneInString(sql[i:])
+		switch {
+		case unicode.IsSpace(r):
+			i += width
+		case isWordRune(r):
+			start := i
+			i += width
+			for i < len(sql) {
+				next, nextWidth := utf8.DecodeRuneInString(sql[i:])
+				if !isWordRune(next) {
+					break
+				}
+				i += nextWidth
+			}
+			tokens = append(tokens, token{kind: tokenWord, text: sql[start:i]})
+		case r == '\'' || r == '"' || r == '`':
+			literal, next := readQuoted(sql, i, byte(r))
+			tokens = append(tokens, token{kind: tokenLiteral, text: literal})
+			i = next
+		case r == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			start := i
+			i += 2
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			tokens = append(tokens, token{kind: tokenComment, text: strings.TrimSpace(sql[start:i])})
+		case r == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			start := i
+			i += 2
+			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(sql) {
+				i += 2
+			}
+			tokens = append(tokens, token{kind: tokenComment, text: strings.TrimSpace(sql[start:i])})
+		default:
+			tokens = append(tokens, token{kind: tokenPunct, text: string(r)})
+			i += width
 		}
-		lines[i] = strings.Join(strings.Fields(line), " ")
 	}
-	return strings.Join(lines, "\n")
+	return tokens
 }
 
-// replaceWord replaces a keyword token without disturbing surrounding
-// punctuation such as commas, parentheses, and semicolons.
-func replaceWord(input, old, replacement string) string {
-	fields := strings.Fields(input)
-	for i, field := range fields {
-		trimmed := strings.Trim(field, "(),;")
-		if strings.EqualFold(trimmed, old) {
-			fields[i] = strings.Replace(field, trimmed, replacement, 1)
+func readQuoted(sql string, start int, quote byte) (string, int) {
+	for i := start + 1; i < len(sql); i++ {
+		if sql[i] == quote {
+			if quote == '\'' && i+1 < len(sql) && sql[i+1] == '\'' {
+				i++
+				continue
+			}
+			if quote == '"' && i+1 < len(sql) && sql[i+1] == '"' {
+				i++
+				continue
+			}
+			return sql[start : i+1], i + 1
 		}
 	}
-	return strings.Join(fields, " ")
+	return sql[start:], len(sql)
 }
 
-// newlineBeforeClause inserts a line break before a matching SQL clause unless
-// the clause is already separated by an existing newline.
-func newlineBeforeClause(input, pattern string) string {
-	re := regexp.MustCompile(`(?i)\s+(` + pattern + `)`)
-	return re.ReplaceAllStringFunc(input, func(match string) string {
-		trimmed := strings.TrimSpace(match)
-		if strings.Contains(match, "\n") {
-			return match
-		}
-		return "\n" + trimmed
-	})
-}
-
-// indentContinuation indents every non-comment line after the first by the
-// configured width, defaulting to two spaces when the option is unset.
-func indentContinuation(input string, indent int) string {
+func renderTokens(tokens []token, opts Options) string {
+	indent := opts.Indent
 	if indent <= 0 {
 		indent = 2
 	}
+	lines := []string{}
+	current := strings.Builder{}
+	parenDepth := 0
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
+		if tok.kind == tokenComment {
+			flushLine(&lines, &current)
+			lines = append(lines, tok.text)
+			continue
+		}
+		if startsClause(tokens, i) && strings.TrimSpace(current.String()) != "" {
+			flushLine(&lines, &current)
+		}
+		text := formatToken(tok, opts)
+		if tok.text == ")" && parenDepth > 0 {
+			parenDepth--
+		}
+		writeToken(&current, text, tok)
+		if tok.text == "(" {
+			parenDepth++
+		}
+		if tok.text == "," && parenDepth == 0 {
+			flushLine(&lines, &current)
+		}
+	}
+	flushLine(&lines, &current)
+	return indentLines(lines, indent)
+}
+
+func formatToken(tok token, opts Options) string {
+	if tok.kind != tokenWord {
+		return tok.text
+	}
+	lower := strings.ToLower(tok.text)
+	if keywordSet[lower] {
+		return applyCase(tok.text, opts.KeywordCase)
+	}
+	if opts.IdentifierCase != "" {
+		return applyCase(tok.text, opts.IdentifierCase)
+	}
+	return tok.text
+}
+
+func applyCase(text, mode string) string {
+	switch strings.ToLower(mode) {
+	case "upper":
+		return strings.ToUpper(text)
+	case "lower":
+		return strings.ToLower(text)
+	default:
+		return text
+	}
+}
+
+func startsClause(tokens []token, i int) bool {
+	if tokens[i].kind != tokenWord {
+		return false
+	}
+	word := strings.ToLower(tokens[i].text)
+	switch word {
+	case "from", "where", "having", "limit", "offset", "returning", "union":
+		return true
+	case "group", "order":
+		return i+1 < len(tokens) && strings.EqualFold(tokens[i+1].text, "by")
+	default:
+		return false
+	}
+}
+
+func writeToken(current *strings.Builder, text string, tok token) {
+	raw := current.String()
+	trimmed := strings.TrimRight(raw, " ")
+	current.Reset()
+	current.WriteString(trimmed)
+	if needsSpaceBefore(trimmed, tok) {
+		current.WriteByte(' ')
+	}
+	current.WriteString(text)
+	if tok.kind == tokenWord || tok.kind == tokenLiteral || tok.text == "," {
+		current.WriteByte(' ')
+	}
+}
+
+func needsSpaceBefore(current string, tok token) bool {
+	if current == "" {
+		return false
+	}
+	if tok.text == "," || tok.text == ")" || tok.text == ";" || tok.text == "." {
+		return false
+	}
+	if strings.HasSuffix(current, "(") || strings.HasSuffix(current, ".") {
+		return false
+	}
+	return true
+}
+
+func flushLine(lines *[]string, current *strings.Builder) {
+	line := strings.TrimSpace(current.String())
+	current.Reset()
+	if line == "" {
+		return
+	}
+	*lines = append(*lines, line)
+}
+
+func indentLines(lines []string, indent int) string {
 	pad := strings.Repeat(" ", indent)
-	lines := strings.Split(input, "\n")
 	for i := 1; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) != "" && !strings.HasPrefix(strings.TrimSpace(lines[i]), "--") {
 			lines[i] = pad + strings.TrimSpace(lines[i])
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func isWordRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func makeKeywordSet(words []string) map[string]bool {
+	set := map[string]bool{}
+	for _, word := range words {
+		set[word] = true
+	}
+	return set
 }

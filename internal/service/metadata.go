@@ -17,14 +17,25 @@ type MetadataService struct {
 
 // Schema is the service-layer representation of database metadata.
 type Schema struct {
+	Name   string  `json:"name,omitempty"`
 	Tables []Table `json:"tables"`
 }
 
 // Table describes one table or view exposed to CLI and TUI callers.
 type Table struct {
+	Schema  string   `json:"schema,omitempty"`
 	Name    string   `json:"name"`
 	Columns []Column `json:"columns"`
+	Indexes []Index  `json:"indexes,omitempty"`
 	DDL     string   `json:"ddl"`
+}
+
+// Index describes one table index.
+type Index struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+	Unique  bool     `json:"unique"`
+	Primary bool     `json:"primary,omitempty"`
 }
 
 // Column describes one table column and common relational constraints.
@@ -51,7 +62,8 @@ func NewMetadataService() MetadataService {
 						{Name: "name", Type: "text"},
 						{Name: "email", Type: "text", Nullable: true},
 					},
-					DDL: "CREATE TABLE users (id integer primary key, name text not null, email text);",
+					Indexes: []Index{{Name: "users_pkey", Columns: []string{"id"}, Unique: true, Primary: true}},
+					DDL:     "CREATE TABLE users (id integer primary key, name text not null, email text);",
 				},
 				{
 					Name: "posts",
@@ -60,7 +72,8 @@ func NewMetadataService() MetadataService {
 						{Name: "user_id", Type: "integer"},
 						{Name: "title", Type: "text"},
 					},
-					DDL: "CREATE TABLE posts (id integer primary key, user_id integer not null, title text not null);",
+					Indexes: []Index{{Name: "posts_pkey", Columns: []string{"id"}, Unique: true, Primary: true}},
+					DDL:     "CREATE TABLE posts (id integer primary key, user_id integer not null, title text not null);",
 				},
 			},
 		},
@@ -71,6 +84,12 @@ func NewMetadataService() MetadataService {
 // database connection.
 func NewConnectedMetadataService(driver, dsn string) MetadataService {
 	return MetadataService{db: db.Config{Driver: driver, DSN: dsn}}
+}
+
+// NewConnectedMetadataServiceWithSchema returns a metadata service backed by a
+// live database connection and constrained to schemaName when supported.
+func NewConnectedMetadataServiceWithSchema(driver, dsn, schemaName string) MetadataService {
+	return MetadataService{db: db.Config{Driver: driver, DSN: dsn, Schema: schemaName}}
 }
 
 // Tables returns all known tables for the configured metadata source.
@@ -128,6 +147,43 @@ func (s MetadataService) DDL(ctx context.Context, tableName string) (string, err
 		return "", fmt.Errorf("table not found: %s", tableName)
 	}
 	return table.DDL, nil
+}
+
+// Indexes returns metadata for indexes in tableName.
+func (s MetadataService) Indexes(ctx context.Context, tableName string) ([]Index, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.db.Driver != "" || s.db.DSN != "" {
+		schema, err := s.Schema(ctx)
+		if err != nil {
+			return nil, err
+		}
+		table, ok := findTable(schema, tableName)
+		if !ok {
+			return nil, fmt.Errorf("table not found: %s", tableName)
+		}
+		return table.Indexes, nil
+	}
+	table, ok := s.findTable(tableName)
+	if !ok {
+		return nil, fmt.Errorf("table not found: %s", tableName)
+	}
+	return table.Indexes, nil
+}
+
+// Schemas returns schema/database names for connected metadata sources.
+func (s MetadataService) Schemas(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.db.Driver != "" || s.db.DSN != "" {
+		return db.Schemas(ctx, s.db)
+	}
+	if s.schema.Name != "" {
+		return []string{s.schema.Name}, nil
+	}
+	return []string{"default"}, nil
 }
 
 // findColumns returns columns for tableName from schema.
@@ -202,7 +258,11 @@ func (s MetadataService) findTable(tableName string) (Table, bool) {
 // fromDBSchema converts database-layer metadata into service-layer metadata.
 func fromDBSchema(schema db.SchemaInfo) Schema {
 	tables := make([]Table, 0, len(schema.Tables))
+	schemaName := ""
 	for _, table := range schema.Tables {
+		if schemaName == "" {
+			schemaName = table.Schema
+		}
 		columns := make([]Column, 0, len(table.Columns))
 		for _, column := range table.Columns {
 			columns = append(columns, Column{
@@ -215,7 +275,16 @@ func fromDBSchema(schema db.SchemaInfo) Schema {
 				References: column.References,
 			})
 		}
-		tables = append(tables, Table{Name: table.Name, Columns: columns, DDL: table.DDL})
+		indexes := make([]Index, 0, len(table.Indexes))
+		for _, index := range table.Indexes {
+			indexes = append(indexes, Index{
+				Name:    index.Name,
+				Columns: append([]string(nil), index.Columns...),
+				Unique:  index.Unique,
+				Primary: index.Primary,
+			})
+		}
+		tables = append(tables, Table{Schema: table.Schema, Name: table.Name, Columns: columns, Indexes: indexes, DDL: table.DDL})
 	}
-	return Schema{Tables: tables}
+	return Schema{Name: schemaName, Tables: tables}
 }

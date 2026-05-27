@@ -3,17 +3,26 @@
 package db
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/isksss/sqio/internal/output"
 	"github.com/isksss/sqio/internal/query"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/sijms/go-ora/v2"
+	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,13 +30,20 @@ import (
 type Config struct {
 	Driver string
 	DSN    string
+	Schema string
 }
 
 // ExecuteOptions controls optional execution behavior for a SQL request.
 type ExecuteOptions struct {
 	MaxRows     int
 	Explain     bool
+	Analyze     bool
 	Transaction bool
+}
+
+// ImportResult summarizes a table import operation.
+type ImportResult struct {
+	RowsAffected int `json:"rows_affected"`
 }
 
 // Open validates cfg, opens the matching database driver, and verifies the
@@ -48,6 +64,8 @@ func Open(ctx context.Context, cfg Config) (*sql.DB, string, error) {
 	return conn, driver, nil
 }
 
+var openConnection = Open
+
 // Execute runs each parsed statement in sqlText and returns the result from the
 // last statement. Row-returning statements are scanned into output.Result, while
 // write statements report affected row count.
@@ -60,7 +78,7 @@ func Execute(ctx context.Context, cfg Config, sqlText string, opts ExecuteOption
 	defer conn.Close()
 
 	if opts.Explain {
-		sqlText = explainSQL(driver, sqlText)
+		sqlText = explainSQL(driver, sqlText, opts.Analyze)
 	}
 	var execer interface {
 		QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
@@ -118,7 +136,7 @@ func ExecuteToWriter(ctx context.Context, cfg Config, sqlText string, opts Execu
 	defer conn.Close()
 
 	if opts.Explain {
-		sqlText = explainSQL(driver, sqlText)
+		sqlText = explainSQL(driver, sqlText, opts.Analyze)
 	}
 	statements := query.Statements(sqlText)
 	if len(statements) == 0 {
@@ -181,6 +199,221 @@ func ExecuteToWriter(ctx context.Context, cfg Config, sqlText string, opts Execu
 	return result, nil
 }
 
+// DumpTable streams all rows from tableName to w using the requested output
+// format.
+func DumpTable(ctx context.Context, cfg Config, tableName string, opts ExecuteOptions, w io.Writer, format string) (output.Result, error) {
+	conn, driver, err := Open(ctx, cfg)
+	if err != nil {
+		return output.Result{}, err
+	}
+	defer conn.Close()
+	if strings.TrimSpace(tableName) == "" {
+		return output.Result{}, fmt.Errorf("table is required")
+	}
+	started := time.Now()
+	rows, err := conn.QueryContext(ctx, "select * from "+quoteIdent(driver, tableName))
+	if err != nil {
+		return output.Result{}, err
+	}
+	defer rows.Close()
+	return streamRows(rows, opts.MaxRows, w, format, started)
+}
+
+// LoadCSV inserts CSV rows into tableName. The first CSV record is treated as a
+// header containing destination column names.
+func LoadCSV(ctx context.Context, cfg Config, tableName string, r io.Reader) (ImportResult, error) {
+	conn, driver, err := Open(ctx, cfg)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer conn.Close()
+	if strings.TrimSpace(tableName) == "" {
+		return ImportResult{}, fmt.Errorf("table is required")
+	}
+	reader := csv.NewReader(r)
+	header, err := reader.Read()
+	if err != nil {
+		return ImportResult{}, err
+	}
+	if len(header) == 0 {
+		return ImportResult{}, fmt.Errorf("csv header is required")
+	}
+	columns := make([]string, len(header))
+	placeholders := make([]string, len(header))
+	for i, column := range header {
+		if strings.TrimSpace(column) == "" {
+			return ImportResult{}, fmt.Errorf("csv header contains empty column")
+		}
+		columns[i] = quoteIdent(driver, column)
+		placeholders[i] = placeholder(driver, i+1)
+	}
+	stmtSQL := fmt.Sprintf("insert into %s (%s) values (%s)", quoteIdent(driver, tableName), strings.Join(columns, ","), strings.Join(placeholders, ","))
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, stmtSQL)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer stmt.Close()
+	result := ImportResult{}
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return ImportResult{}, err
+		}
+		if len(record) != len(header) {
+			return ImportResult{}, fmt.Errorf("csv record has %d fields, want %d", len(record), len(header))
+		}
+		values := make([]interface{}, len(record))
+		for i, value := range record {
+			values[i] = value
+		}
+		if _, err := stmt.ExecContext(ctx, values...); err != nil {
+			return ImportResult{}, err
+		}
+		result.RowsAffected++
+	}
+	if err := tx.Commit(); err != nil {
+		return ImportResult{}, err
+	}
+	return result, nil
+}
+
+// LoadJSON inserts rows from either output.Result JSON or an array of objects.
+func LoadJSON(ctx context.Context, cfg Config, tableName string, r io.Reader) (ImportResult, error) {
+	var raw json.RawMessage
+	if err := json.NewDecoder(r).Decode(&raw); err != nil {
+		return ImportResult{}, err
+	}
+	var result output.Result
+	if err := json.Unmarshal(raw, &result); err == nil && len(result.Columns) > 0 {
+		return loadRows(ctx, cfg, tableName, result.Columns, result.Rows)
+	}
+	var objects []map[string]interface{}
+	if err := json.Unmarshal(raw, &objects); err != nil {
+		return ImportResult{}, err
+	}
+	rows, columns := rowsFromObjects(objects)
+	return loadRows(ctx, cfg, tableName, columns, rows)
+}
+
+// LoadJSONL inserts newline-delimited JSON objects.
+func LoadJSONL(ctx context.Context, cfg Config, tableName string, r io.Reader) (ImportResult, error) {
+	scanner := bufio.NewScanner(r)
+	objects := []map[string]interface{}{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			return ImportResult{}, err
+		}
+		objects = append(objects, obj)
+	}
+	if err := scanner.Err(); err != nil {
+		return ImportResult{}, err
+	}
+	rows, columns := rowsFromObjects(objects)
+	return loadRows(ctx, cfg, tableName, columns, rows)
+}
+
+// LoadYAML inserts rows from either output.Result YAML or an array of objects.
+func LoadYAML(ctx context.Context, cfg Config, tableName string, r io.Reader) (ImportResult, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	var result output.Result
+	if err := yaml.Unmarshal(data, &result); err == nil && len(result.Columns) > 0 {
+		return loadRows(ctx, cfg, tableName, result.Columns, result.Rows)
+	}
+	var objects []map[string]interface{}
+	if err := yaml.Unmarshal(data, &objects); err != nil {
+		return ImportResult{}, err
+	}
+	rows, columns := rowsFromObjects(objects)
+	return loadRows(ctx, cfg, tableName, columns, rows)
+}
+
+func rowsFromObjects(objects []map[string]interface{}) ([][]interface{}, []string) {
+	columnSet := map[string]bool{}
+	for _, obj := range objects {
+		for column := range obj {
+			columnSet[column] = true
+		}
+	}
+	columns := make([]string, 0, len(columnSet))
+	for column := range columnSet {
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+	rows := make([][]interface{}, len(objects))
+	for i, obj := range objects {
+		row := make([]interface{}, len(columns))
+		for j, column := range columns {
+			row[j] = obj[column]
+		}
+		rows[i] = row
+	}
+	return rows, columns
+}
+
+func loadRows(ctx context.Context, cfg Config, tableName string, columns []string, rows [][]interface{}) (ImportResult, error) {
+	conn, driver, err := Open(ctx, cfg)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer conn.Close()
+	if strings.TrimSpace(tableName) == "" {
+		return ImportResult{}, fmt.Errorf("table is required")
+	}
+	if len(columns) == 0 {
+		return ImportResult{}, fmt.Errorf("input columns are required")
+	}
+	quoted := make([]string, len(columns))
+	placeholders := make([]string, len(columns))
+	for i, column := range columns {
+		if strings.TrimSpace(column) == "" {
+			return ImportResult{}, fmt.Errorf("input contains empty column")
+		}
+		quoted[i] = quoteIdent(driver, column)
+		placeholders[i] = placeholder(driver, i+1)
+	}
+	stmtSQL := fmt.Sprintf("insert into %s (%s) values (%s)", quoteIdent(driver, tableName), strings.Join(quoted, ","), strings.Join(placeholders, ","))
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, stmtSQL)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	defer stmt.Close()
+	result := ImportResult{}
+	for _, row := range rows {
+		if len(row) != len(columns) {
+			return ImportResult{}, fmt.Errorf("input row has %d fields, want %d", len(row), len(columns))
+		}
+		if _, err := stmt.ExecContext(ctx, row...); err != nil {
+			return ImportResult{}, err
+		}
+		result.RowsAffected++
+	}
+	if err := tx.Commit(); err != nil {
+		return ImportResult{}, err
+	}
+	return result, nil
+}
+
 // returnsRows reports whether statement should be executed with QueryContext
 // instead of ExecContext based on its first SQL token.
 func returnsRows(statement string) bool {
@@ -196,6 +429,37 @@ func returnsRows(statement string) bool {
 	}
 }
 
+func quoteIdent(driver, ident string) string {
+	quote := `"`
+	if driver == "mysql" {
+		quote = "`"
+	}
+	parts := strings.Split(ident, ".")
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if quote == "`" {
+			part = strings.ReplaceAll(part, "`", "``")
+		} else {
+			part = strings.ReplaceAll(part, `"`, `""`)
+		}
+		parts[i] = quote + part + quote
+	}
+	return strings.Join(parts, ".")
+}
+
+func placeholder(driver string, position int) string {
+	switch driver {
+	case "pgx":
+		return fmt.Sprintf("$%d", position)
+	case "sqlserver":
+		return fmt.Sprintf("@p%d", position)
+	case "oracle":
+		return fmt.Sprintf(":%d", position)
+	default:
+		return "?"
+	}
+}
+
 // normalize maps user-facing driver aliases onto database/sql driver names and
 // validates that a DSN is present.
 func normalize(cfg Config) (string, string, error) {
@@ -206,16 +470,36 @@ func normalize(cfg Config) (string, string, error) {
 			return "", "", fmt.Errorf("sqlite requires dsn or database path")
 		}
 		return "sqlite", cfg.DSN, nil
-	case "postgres", "postgresql", "pgx":
+	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("postgres requires dsn")
 		}
 		return "pgx", cfg.DSN, nil
-	case "mysql":
+	case "mysql", "mariadb", "tidb":
 		if cfg.DSN == "" {
 			return "", "", fmt.Errorf("mysql requires dsn")
 		}
 		return "mysql", cfg.DSN, nil
+	case "sqlserver", "mssql":
+		if cfg.DSN == "" {
+			return "", "", fmt.Errorf("sqlserver requires dsn")
+		}
+		return "sqlserver", cfg.DSN, nil
+	case "oracle":
+		if cfg.DSN == "" {
+			return "", "", fmt.Errorf("oracle requires dsn")
+		}
+		return "oracle", cfg.DSN, nil
+	case "clickhouse", "ch":
+		if cfg.DSN == "" {
+			return "", "", fmt.Errorf("clickhouse requires dsn")
+		}
+		return "clickhouse", cfg.DSN, nil
+	case "duckdb":
+		if cfg.DSN == "" {
+			return "", "", fmt.Errorf("duckdb requires dsn or database path")
+		}
+		return "duckdb", cfg.DSN, nil
 	default:
 		return "", "", fmt.Errorf("unsupported driver: %s", cfg.Driver)
 	}
@@ -304,10 +588,13 @@ func streamRows(rows *sql.Rows, maxRows int, w io.Writer, format string, started
 }
 
 // explainSQL prefixes each statement with the driver's EXPLAIN syntax.
-func explainSQL(driver, sqlText string) string {
+func explainSQL(driver, sqlText string, analyze bool) string {
 	prefix := "EXPLAIN "
-	if driver == "sqlite" {
+	switch {
+	case driver == "sqlite":
 		prefix = "EXPLAIN QUERY PLAN "
+	case analyze:
+		prefix = "EXPLAIN ANALYZE "
 	}
 	statements := query.Statements(sqlText)
 	for i, statement := range statements {

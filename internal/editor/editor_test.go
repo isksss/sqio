@@ -43,3 +43,33 @@ func TestEditUsesConfiguredEditor(t *testing.T) {
 		t.Fatalf("unexpected edited sql: %q", got)
 	}
 }
+
+func TestSelectVisualFallback(t *testing.T) {
+	t.Setenv("DBTUI_EDITOR", "")
+	t.Setenv("VISUAL", "code")
+	t.Setenv("EDITOR", "vim")
+	if got := Select(); got != "code" {
+		t.Fatalf("expected code, got %s", got)
+	}
+}
+
+func TestSelectEditorFallback(t *testing.T) {
+	t.Setenv("DBTUI_EDITOR", "")
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "vim")
+	if got := Select(); got != "vim" {
+		t.Fatalf("expected vim, got %s", got)
+	}
+}
+
+func TestEditReturnsEditorError(t *testing.T) {
+	dir := t.TempDir()
+	editorPath := filepath.Join(dir, "editor.sh")
+	if err := os.WriteFile(editorPath, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DBTUI_EDITOR", editorPath)
+	if _, err := Edit("select 1"); err == nil {
+		t.Fatal("expected editor error")
+	}
+}

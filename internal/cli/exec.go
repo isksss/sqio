@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/isksss/sqio/internal/history"
@@ -24,8 +26,21 @@ type execOptions struct {
 	maxRows     int
 	maxBytes    int
 	noHistory   bool
+	auditLog    string
 	explain     bool
+	analyze     bool
 	transaction bool
+}
+
+type auditEntry struct {
+	ExecutedAt time.Time `json:"executed_at"`
+	SQL        string    `json:"sql"`
+	Connection string    `json:"connection"`
+	Driver     string    `json:"driver"`
+	ElapsedMS  int64     `json:"elapsed_ms"`
+	Success    bool      `json:"success"`
+	Error      string    `json:"error,omitempty"`
+	RowCount   int       `json:"row_count"`
 }
 
 // newExecCommand creates the non-interactive SQL execution command.
@@ -45,7 +60,9 @@ func newExecCommand() *cobra.Command {
 	cmd.Flags().IntVar(&opts.maxRows, "max-rows", 0, "maximum rows")
 	cmd.Flags().IntVar(&opts.maxBytes, "max-bytes", 0, "maximum output bytes")
 	cmd.Flags().BoolVar(&opts.noHistory, "no-history", false, "disable query history")
+	cmd.Flags().StringVar(&opts.auditLog, "audit-log", "", "append execution audit log as JSONL")
 	cmd.Flags().BoolVar(&opts.explain, "explain", false, "run EXPLAIN for SQL")
+	cmd.Flags().BoolVar(&opts.analyze, "analyze", false, "run EXPLAIN ANALYZE when supported")
 	cmd.Flags().BoolVar(&opts.transaction, "transaction", false, "execute SQL in a transaction")
 	return cmd
 }
@@ -107,22 +124,72 @@ func runExec(cmd *cobra.Command, opts execOptions, sqlOverride string) error {
 	if opts.maxBytes > 0 {
 		w = &output.LimitWriter{Writer: w, Limit: opts.maxBytes}
 	}
+	started := time.Now()
 	result, err := service.Executor{}.Write(ctx, w, sql, service.ExecOptions{
 		Format: opts.format, MaxRows: opts.maxRows, Driver: driver, DSN: dsn,
-		Explain: opts.explain, Transaction: opts.transaction,
+		Explain: opts.explain, Analyze: opts.analyze, Transaction: opts.transaction,
 	})
 	if err != nil {
+		result := output.Result{ElapsedMS: time.Since(started).Milliseconds()}
+		appendExecHistory(cmd, opts, sql, driver, result, err)
+		if auditErr := appendExecAudit(opts, sql, driver, result, err); auditErr != nil {
+			return &CommandError{Type: "output", Message: auditErr.Error(), Code: ExitInternal}
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return &CommandError{Type: "timeout", Message: err.Error(), Code: ExitTimeout}
 		}
 		return &CommandError{Type: "output", Message: err.Error(), Code: ExitInternal}
 	}
+	appendExecHistory(cmd, opts, sql, driver, result, nil)
+	if err := appendExecAudit(opts, sql, driver, result, nil); err != nil {
+		return &CommandError{Type: "output", Message: err.Error(), Code: ExitInternal}
+	}
+	return nil
+}
+
+func appendExecHistory(cmd *cobra.Command, opts execOptions, sql, driver string, result output.Result, execErr error) {
 	if !opts.noHistory {
+		errorText := ""
+		if execErr != nil {
+			errorText = strings.TrimSpace(execErr.Error())
+		}
 		_ = history.New("").Append(cmd.Context(), history.Entry{
 			SQL:        sql,
 			Connection: opts.conn,
 			ElapsedMS:  result.ElapsedMS,
+			Success:    execErr == nil,
+			Error:      errorText,
+			RowCount:   result.RowCount,
+			Driver:     driver,
 		})
+	}
+}
+
+func appendExecAudit(opts execOptions, sql, driver string, result output.Result, execErr error) error {
+	if opts.auditLog == "" {
+		return nil
+	}
+	errorText := ""
+	if execErr != nil {
+		errorText = strings.TrimSpace(execErr.Error())
+	}
+	file, err := os.OpenFile(opts.auditLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	entry := auditEntry{
+		ExecutedAt: time.Now().UTC(),
+		SQL:        sql,
+		Connection: opts.conn,
+		Driver:     driver,
+		ElapsedMS:  result.ElapsedMS,
+		Success:    execErr == nil,
+		Error:      errorText,
+		RowCount:   result.RowCount,
+	}
+	if err := json.NewEncoder(file).Encode(entry); err != nil {
+		return err
 	}
 	return nil
 }

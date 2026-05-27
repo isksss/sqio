@@ -75,18 +75,19 @@ func Lint(sql string, opts ...Options) Result {
 		}
 	}
 	for _, statement := range query.StatementsWithLine(sql) {
+		tokens := query.Tokens(statement.SQL)
 		normalized := strings.ToLower(strings.Join(strings.Fields(query.AnalysisText(statement.SQL)), " "))
 		commentless := strings.ToLower(strings.Join(strings.Fields(query.CommentlessText(statement.SQL)), " "))
-		if strings.HasPrefix(normalized, "delete from ") && !strings.Contains(normalized, " where ") && !ignored["delete-without-where"] && !disabled["delete-without-where"] {
+		if query.HasTokenSequence(tokens, "delete", "from") && !query.HasToken(tokens, "where") && !ignored["delete-without-where"] && !disabled["delete-without-where"] {
 			issues = appendIssue(issues, options.Level, Issue{Line: statement.Line, Rule: "delete-without-where", Severity: "error", Message: "DELETE without WHERE"})
 		}
-		if strings.HasPrefix(normalized, "update ") && !strings.Contains(normalized, " where ") && !ignored["update-without-where"] && !disabled["update-without-where"] {
+		if len(tokens) > 0 && tokens[0] == "update" && !query.HasToken(tokens, "where") && !ignored["update-without-where"] && !disabled["update-without-where"] {
 			issues = appendIssue(issues, options.Level, Issue{Line: statement.Line, Rule: "update-without-where", Severity: "error", Message: "UPDATE without WHERE"})
 		}
-		if strings.HasPrefix(normalized, "truncate ") && !ignored["truncate"] && !disabled["truncate"] {
+		if len(tokens) > 0 && tokens[0] == "truncate" && !ignored["truncate"] && !disabled["truncate"] {
 			issues = appendIssue(issues, options.Level, Issue{Line: statement.Line, Rule: "truncate", Severity: "error", Message: "TRUNCATE is dangerous"})
 		}
-		if strings.HasPrefix(normalized, "drop database ") && !ignored["drop-database"] && !disabled["drop-database"] {
+		if query.HasTokenSequence(tokens, "drop", "database") && !ignored["drop-database"] && !disabled["drop-database"] {
 			issues = appendIssue(issues, options.Level, Issue{Line: statement.Line, Rule: "drop-database", Severity: "error", Message: "DROP DATABASE is dangerous"})
 		}
 		if hasNotInNull(normalized) && !ignored["not-in-null"] && !disabled["not-in-null"] {
@@ -97,6 +98,12 @@ func Lint(sql string, opts ...Options) Result {
 		}
 		if strings.Contains(commentless, " like '%") && !ignored["leading-wildcard-like"] && !disabled["leading-wildcard-like"] {
 			issues = appendIssue(issues, options.Level, Issue{Line: statement.Line, Rule: "leading-wildcard-like", Severity: "warning", Message: "leading wildcard LIKE can prevent index use"})
+		}
+		for _, issue := range dialectIssues(options.Dialect, normalized, commentless, tokens, statement.Line) {
+			if ignored[issue.Rule] || disabled[issue.Rule] {
+				continue
+			}
+			issues = appendIssue(issues, options.Level, issue)
 		}
 	}
 	return Result{Issues: issues}
@@ -148,10 +155,132 @@ func hasLimitWithoutOrder(line string) bool {
 	return strings.Contains(line, " limit ") && !strings.Contains(line, " order by ")
 }
 
+func dialectIssues(dialect, normalized, commentless string, tokens []string, line int) []Issue {
+	switch strings.ToLower(dialect) {
+	case "postgres", "postgresql", "pgx", "cockroach", "cockroachdb":
+		return postgresDialectIssues(normalized, commentless, line)
+	case "mysql", "mariadb", "tidb":
+		return mysqlDialectIssues(normalized, commentless, line)
+	case "sqlite", "sqlite3":
+		return sqliteDialectIssues(normalized, commentless, line)
+	case "sqlserver", "mssql":
+		return sqlServerDialectIssues(normalized, commentless, tokens, line)
+	case "oracle":
+		return oracleDialectIssues(normalized, commentless, tokens, line)
+	case "duckdb":
+		return duckDBDialectIssues(normalized, tokens, line)
+	case "clickhouse", "ch":
+		return clickHouseDialectIssues(normalized, tokens, line)
+	default:
+		return nil
+	}
+}
+
+func postgresDialectIssues(normalized, commentless string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(commentless, "`") {
+		issues = append(issues, Issue{Line: line, Rule: "postgres-backtick-identifier", Severity: "error", Message: "PostgreSQL uses double quotes for identifiers, not backticks"})
+	}
+	if hasMySQLLimitOffset(normalized) {
+		issues = append(issues, Issue{Line: line, Rule: "postgres-limit-offset", Severity: "error", Message: "PostgreSQL uses LIMIT n OFFSET m instead of LIMIT m,n"})
+	}
+	return issues
+}
+
+func mysqlDialectIssues(normalized, _ string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(normalized, " ilike ") {
+		issues = append(issues, Issue{Line: line, Rule: "mysql-ilike", Severity: "error", Message: "MySQL does not support ILIKE"})
+	}
+	if strings.Contains(normalized, " returning ") {
+		issues = append(issues, Issue{Line: line, Rule: "mysql-returning", Severity: "warning", Message: "RETURNING support is not portable across MySQL versions"})
+	}
+	return issues
+}
+
+func sqliteDialectIssues(normalized, _ string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(normalized, " for update") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlite-for-update", Severity: "error", Message: "SQLite does not support FOR UPDATE"})
+	}
+	if strings.Contains(normalized, " ilike ") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlite-ilike", Severity: "error", Message: "SQLite does not support ILIKE"})
+	}
+	return issues
+}
+
+func sqlServerDialectIssues(normalized, commentless string, tokens []string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(commentless, "`") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlserver-backtick-identifier", Severity: "error", Message: "SQL Server uses brackets or double quotes for identifiers, not backticks"})
+	}
+	if query.HasToken(tokens, "limit") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlserver-limit", Severity: "error", Message: "SQL Server uses TOP or OFFSET/FETCH instead of LIMIT"})
+	}
+	if strings.Contains(normalized, " ilike ") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlserver-ilike", Severity: "error", Message: "SQL Server does not support ILIKE"})
+	}
+	if strings.Contains(normalized, " returning ") {
+		issues = append(issues, Issue{Line: line, Rule: "sqlserver-returning", Severity: "error", Message: "SQL Server uses OUTPUT instead of RETURNING"})
+	}
+	return issues
+}
+
+func oracleDialectIssues(normalized, commentless string, tokens []string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(commentless, "`") {
+		issues = append(issues, Issue{Line: line, Rule: "oracle-backtick-identifier", Severity: "error", Message: "Oracle uses double quotes for identifiers, not backticks"})
+	}
+	if query.HasToken(tokens, "limit") {
+		issues = append(issues, Issue{Line: line, Rule: "oracle-limit", Severity: "error", Message: "Oracle uses FETCH FIRST or ROWNUM instead of LIMIT"})
+	}
+	if strings.Contains(normalized, " ilike ") {
+		issues = append(issues, Issue{Line: line, Rule: "oracle-ilike", Severity: "error", Message: "Oracle does not support ILIKE"})
+	}
+	return issues
+}
+
+func duckDBDialectIssues(normalized string, tokens []string, line int) []Issue {
+	issues := []Issue{}
+	if strings.Contains(normalized, " for update") {
+		issues = append(issues, Issue{Line: line, Rule: "duckdb-for-update", Severity: "error", Message: "DuckDB does not support FOR UPDATE"})
+	}
+	if len(tokens) > 0 && tokens[0] == "show" && query.HasToken(tokens, "tables") {
+		issues = append(issues, Issue{Line: line, Rule: "duckdb-show-tables", Severity: "warning", Message: "Prefer information_schema or duckdb_tables() for portable DuckDB table metadata"})
+	}
+	return issues
+}
+
+func clickHouseDialectIssues(normalized string, tokens []string, line int) []Issue {
+	issues := []Issue{}
+	if query.HasToken(tokens, "returning") {
+		issues = append(issues, Issue{Line: line, Rule: "clickhouse-returning", Severity: "error", Message: "ClickHouse does not support RETURNING"})
+	}
+	if strings.Contains(normalized, " for update") {
+		issues = append(issues, Issue{Line: line, Rule: "clickhouse-for-update", Severity: "error", Message: "ClickHouse does not support FOR UPDATE"})
+	}
+	if len(tokens) > 0 && (tokens[0] == "update" || tokens[0] == "delete") {
+		issues = append(issues, Issue{Line: line, Rule: "clickhouse-mutation", Severity: "warning", Message: "ClickHouse mutations use ALTER TABLE ... UPDATE/DELETE"})
+	}
+	return issues
+}
+
+func hasMySQLLimitOffset(normalized string) bool {
+	idx := strings.LastIndex(normalized, " limit ")
+	if idx < 0 {
+		return false
+	}
+	tail := normalized[idx+len(" limit "):]
+	if next := strings.Index(tail, " "); next >= 0 {
+		tail = tail[:next]
+	}
+	return strings.Contains(tail, ",")
+}
+
 // hasLowercaseKeyword reports whether a supported SQL keyword appears in lower
 // case on the analyzed line.
 func hasLowercaseKeyword(line string) bool {
-	for _, keyword := range []string{"select", "from", "where", "insert", "update", "delete", "join"} {
+	for _, keyword := range []string{"select", "from", "where", "insert", "update", "delete", "join", "returning", "limit"} {
 		if strings.Contains(line, keyword) {
 			return true
 		}
